@@ -46,7 +46,7 @@ function calcSkinScore(detections) {
 }
 
 // ─── Routes ───────────────────────────────────────────────
-//test
+
 // Health check
 app.get("/", (req, res) => {
   res.json({ status: "ok", app: "AuraSight API", version: "1.0.0" });
