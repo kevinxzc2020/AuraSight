@@ -1,306 +1,668 @@
-import { LinearGradient } from "expo-linear-gradient";
+import React, { useCallback, useState } from "react";
 import {
-  AlertCircle,
-  Check,
-  Crown,
-  Droplets,
-  TrendingUp,
-} from "lucide-react-native";
-import React from "react";
-import {
-  Dimensions,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  ActivityIndicator,
+  Image,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import Svg, {
   Circle,
-  Defs,
   Path,
-  Stop,
+  Defs,
   LinearGradient as SvgGrad,
+  Stop,
 } from "react-native-svg";
 import {
-  AcneColors,
+  TrendingUp,
+  TrendingDown,
+  Crown,
+  Check,
+  Lock,
+} from "lucide-react-native";
+import {
   Colors,
-  FontSize,
   Gradients,
-  Radius,
-  Shadow,
   Spacing,
+  Radius,
+  FontSize,
+  Shadow,
+  AcneColors,
 } from "../../constants/theme";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect, router } from "expo-router";
 
 const { width } = Dimensions.get("window");
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
+const CHART_W = width - Spacing.xl * 2 - Spacing.xxl * 2;
 
-// ─── 甜甜圈图 ─────────────────────────────────────────────
-const acneBreakdown = [
-  { type: "Pustule", count: 5, color: AcneColors.pustule, percent: 42 },
-  { type: "Broken", count: 3, color: AcneColors.broken, percent: 25 },
-  { type: "Scab", count: 2, color: AcneColors.scab, percent: 17 },
-  { type: "Redness", count: 2, color: AcneColors.redness, percent: 16 },
-];
-
-function DonutChart() {
-  const size = 112;
-  const r = 40;
-  const circumference = 2 * Math.PI * r;
-  let cumulative = 0;
-
-  return (
-    <View style={{ position: "relative", width: size, height: size }}>
-      <Svg
-        width={size}
-        height={size}
-        style={{ transform: [{ rotate: "-90deg" }] }}
-      >
-        {acneBreakdown.map((item, i) => {
-          const dashArray = (item.percent / 100) * circumference;
-          const dashOffset = -((cumulative / 100) * circumference);
-          cumulative += item.percent;
-          return (
-            <Circle
-              key={i}
-              cx={size / 2}
-              cy={size / 2}
-              r={r}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={14}
-              strokeDasharray={`${dashArray} ${circumference}`}
-              strokeDashoffset={dashOffset}
-              strokeLinecap="round"
-            />
-          );
-        })}
-      </Svg>
-      <View style={styles.donutCenter}>
-        <Text style={styles.donutTotal}>12</Text>
-        <Text style={styles.donutLabel}>Total</Text>
-      </View>
-    </View>
-  );
+// ─── 类型定义 ─────────────────────────────────────────────
+interface DailyScore {
+  date: string;
+  score: number;
+  count: number;
 }
 
-// ─── 趋势折线图 ───────────────────────────────────────────
-function TrendLine() {
-  const W = width - Spacing.xl * 2 - Spacing.xxl * 2;
+interface ReportData {
+  total_scans: number;
+  avg_skin_score: number;
+  score_change_pct: number;
+  streak: number;
+  daily_scores: DailyScore[];
+  acne_breakdown: {
+    pustule: number;
+    broken: number;
+    scab: number;
+    redness: number;
+  };
+  first_scan: { image_uri: string | null; score: number; date: string } | null;
+  latest_scan: { image_uri: string | null; score: number; date: string } | null;
+  date_range: { from: string; to: string } | null;
+}
+
+// ─── 工具函数 ─────────────────────────────────────────────
+async function getUserId(): Promise<string> {
+  let id = await AsyncStorage.getItem("@aurasight_user_id");
+  if (!id) {
+    id = "guest_" + Math.random().toString(36).slice(2, 10);
+    await AsyncStorage.setItem("@aurasight_user_id", id);
+  }
+  return id;
+}
+
+// ─── 折线图 ───────────────────────────────────────────────
+// 把 daily_scores 数组渲染成一条 SVG 折线，带渐变填充
+function ScoreLineChart({ data }: { data: DailyScore[] }) {
   const H = 80;
+  const W = CHART_W;
+
+  if (data.length < 2) {
+    return (
+      <View style={[chart.empty]}>
+        <Text style={chart.emptyText}>Scan more days to see your trend</Text>
+      </View>
+    );
+  }
+
+  const maxScore = Math.max(...data.map((d) => d.score), 100);
+  const minScore = Math.min(...data.map((d) => d.score), 0);
+  const range = maxScore - minScore || 1;
+
+  // 将评分映射到 SVG 坐标
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * W;
+    const y = H - ((d.score - minScore) / range) * H;
+    return { x, y };
+  });
+
+  // 构建折线路径
+  const linePath = points
+    .map((p, i) => (i === 0 ? `M${p.x},${p.y}` : `L${p.x},${p.y}`))
+    .join(" ");
+
+  // 构建填充区域路径（折线下方到底部）
+  const areaPath = `${linePath} L${W},${H} L0,${H} Z`;
 
   return (
-    <Svg width={W} height={H} viewBox={`0 0 300 80`} preserveAspectRatio="none">
+    <Svg width={W} height={H} style={{ overflow: "visible" }}>
       <Defs>
         <SvgGrad id="lineGrad" x1="0%" y1="0%" x2="100%" y2="0%">
           <Stop offset="0%" stopColor="#f472b6" />
           <Stop offset="100%" stopColor="#fb7185" />
         </SvgGrad>
         <SvgGrad id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <Stop offset="0%" stopColor="#f472b6" stopOpacity="0.25" />
+          <Stop offset="0%" stopColor="#f472b6" stopOpacity="0.2" />
           <Stop offset="100%" stopColor="#f472b6" stopOpacity="0" />
         </SvgGrad>
       </Defs>
+      <Path d={areaPath} fill="url(#areaGrad)" />
       <Path
-        d="M0,60 Q30,55 60,50 T120,45 T180,35 T240,25 T300,20"
+        d={linePath}
         fill="none"
         stroke="url(#lineGrad)"
         strokeWidth="2.5"
         strokeLinecap="round"
-      />
-      <Path
-        d="M0,60 Q30,55 60,50 T120,45 T180,35 T240,25 T300,20 L300,80 L0,80 Z"
-        fill="url(#areaGrad)"
+        strokeLinejoin="round"
       />
     </Svg>
   );
 }
 
-// ─── AI 洞察卡片 ──────────────────────────────────────────
-const insights = [
-  {
-    Icon: Droplets,
-    title: "Hydration Impact",
-    desc: "Your skin clarity improved 23% on days you logged 8+ glasses of water.",
-  },
-  {
-    Icon: AlertCircle,
-    title: "Hormonal Pattern",
-    desc: "Chin breakouts peaked during days 21-25 of your cycle. Consider targeted care.",
-  },
-  {
-    Icon: TrendingUp,
-    title: "Progress Milestone",
-    desc: "You've reduced total acne count by 38% since day 1. Keep it up!",
-  },
+const chart = StyleSheet.create({
+  empty: { height: 80, alignItems: "center", justifyContent: "center" },
+  emptyText: { fontSize: FontSize.xs, color: Colors.gray300 },
+});
+
+// ─── 甜甜圈图 ─────────────────────────────────────────────
+const ACNE_TYPES = [
+  { key: "pustule", label: "Pustule", color: AcneColors.pustule },
+  { key: "broken", label: "Broken", color: AcneColors.broken },
+  { key: "scab", label: "Scab", color: AcneColors.scab },
+  { key: "redness", label: "Redness", color: AcneColors.redness },
 ];
 
-const vipFeatures = [
-  "Personalized routine builder",
-  "Product recommendations",
-  "Dermatologist report export",
-  "Unlimited history storage",
+function DonutChart({
+  breakdown,
+}: {
+  breakdown: ReportData["acne_breakdown"];
+}) {
+  const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
+  const size = 112;
+  const r = 40;
+  const circ = 2 * Math.PI * r;
+  let cumulative = 0;
+
+  if (total === 0) {
+    return (
+      <View style={donut.empty}>
+        <Text style={donut.emptyText}>No acne data yet</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={donut.row}>
+      <View style={{ position: "relative", width: size, height: size }}>
+        <Svg
+          width={size}
+          height={size}
+          style={{ transform: [{ rotate: "-90deg" }] }}
+        >
+          {ACNE_TYPES.map((item, i) => {
+            const count = breakdown[item.key as keyof typeof breakdown];
+            const pct = count / total;
+            const dash = pct * circ;
+            const offset = -(cumulative / total) * circ;
+            cumulative += count;
+            return (
+              <Circle
+                key={i}
+                cx={size / 2}
+                cy={size / 2}
+                r={r}
+                fill="none"
+                stroke={item.color}
+                strokeWidth={14}
+                strokeDasharray={`${dash} ${circ}`}
+                strokeDashoffset={offset}
+                strokeLinecap="round"
+              />
+            );
+          })}
+        </Svg>
+        <View style={donut.center}>
+          <Text style={donut.total}>{total}</Text>
+          <Text style={donut.totalLabel}>Total</Text>
+        </View>
+      </View>
+
+      <View style={donut.legend}>
+        {ACNE_TYPES.map((item) => (
+          <View key={item.key} style={donut.legendRow}>
+            <View style={[donut.dot, { backgroundColor: item.color }]} />
+            <Text style={donut.legendLabel}>{item.label}</Text>
+            <Text style={donut.legendCount}>
+              {breakdown[item.key as keyof typeof breakdown]}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const donut = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", gap: Spacing.xl },
+  center: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  total: { fontSize: FontSize.xxl, fontWeight: "700", color: Colors.gray800 },
+  totalLabel: { fontSize: 9, color: Colors.gray500 },
+  legend: { flex: 1, gap: 8 },
+  legendRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  dot: { width: 12, height: 12, borderRadius: 6 },
+  legendLabel: { flex: 1, fontSize: FontSize.xs, color: Colors.gray600 },
+  legendCount: {
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  empty: { height: 112, alignItems: "center", justifyContent: "center" },
+  emptyText: { fontSize: FontSize.xs, color: Colors.gray300 },
+});
+
+// ─── VIP 模糊遮罩卡片 ────────────────────────────────────
+// 这个组件展示 VIP 功能的"样子"，但用渐变遮罩盖住内容，
+// 让免费用户知道功能存在，但无法使用 → 付费转化关键设计
+function VIPBlurCard({ onUpgrade }: { onUpgrade: () => void }) {
+  const mockInsights = [
+    {
+      icon: "🌤",
+      title: "Weather Impact",
+      desc: "High humidity days correlate with 40% more breakouts",
+    },
+    {
+      icon: "💧",
+      title: "Hydration Pattern",
+      desc: "Skin clarity improved 23% on days with 8+ glasses of water",
+    },
+    {
+      icon: "📅",
+      title: "Hormonal Cycle",
+      desc: "Chin breakouts peak during days 21-25 of your cycle",
+    },
+  ];
+
+  return (
+    <View style={vip.wrapper}>
+      {/* 内容（会被遮罩覆盖） */}
+      <View style={vip.contentBehind}>
+        {mockInsights.map((ins, i) => (
+          <View key={i} style={vip.mockInsightRow}>
+            <Text style={vip.mockEmoji}>{ins.icon}</Text>
+            <View style={vip.mockText}>
+              <Text style={vip.mockTitle}>{ins.title}</Text>
+              <Text style={vip.mockDesc}>{ins.desc}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* 渐变遮罩 — 从透明到白色，制造"内容被锁住"的视觉效果 */}
+      <LinearGradient
+        colors={[
+          "rgba(255,255,255,0)",
+          "rgba(255,255,255,0.92)",
+          "rgba(255,255,255,1)",
+        ]}
+        style={vip.overlay}
+        pointerEvents="none"
+      />
+
+      {/* 升级按钮 */}
+      <View style={vip.cta}>
+        <Lock size={16} color={Colors.rose400} />
+        <Text style={vip.ctaTitle}>Deep Analysis — VIP Only</Text>
+        <Text style={vip.ctaSub}>
+          Weather, hormonal cycle & personalized skincare recommendations
+        </Text>
+        <TouchableOpacity onPress={onUpgrade} activeOpacity={0.85}>
+          <LinearGradient
+            colors={Gradients.roseMain}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={vip.ctaBtn}
+          >
+            <Crown size={14} color="#fde68a" />
+            <Text style={vip.ctaBtnText}>Unlock with VIP</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const vip = StyleSheet.create({
+  wrapper: {
+    position: "relative",
+    overflow: "hidden",
+    borderRadius: Radius.xl,
+    marginBottom: Spacing.lg,
+  },
+  contentBehind: { padding: Spacing.lg, gap: Spacing.md },
+  mockInsightRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.md,
+  },
+  mockEmoji: { fontSize: 24 },
+  mockText: { flex: 1 },
+  mockTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+    color: Colors.gray800,
+  },
+  mockDesc: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  overlay: { position: "absolute", left: 0, right: 0, bottom: 0, height: 160 },
+  cta: {
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    paddingBottom: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  ctaTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  ctaSub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  ctaBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+    marginTop: 4,
+  },
+  ctaBtnText: { color: "#fff", fontWeight: "700", fontSize: FontSize.sm },
+});
+
+// ─── VIP 功能列表（已解锁时显示） ─────────────────────────
+const VIP_FEATURES = [
+  "Deep AI report (weather & cycle correlation)",
+  "Skincare ingredient recommendations",
+  "Permanent cloud storage",
+  "4K timelapse video export",
+  "Year-over-year comparison",
 ];
 
 // ─── 主页面 ───────────────────────────────────────────────
 export default function ReportScreen() {
+  const [data, setData] = useState<ReportData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isVip, setIsVip] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, []),
+  );
+
+  async function loadData() {
+    try {
+      const id = await getUserId();
+      const mode = await AsyncStorage.getItem("@aurasight_user_mode");
+      setIsVip(mode === "vip");
+
+      const res = await fetch(`${API_URL}/scans/${id}/report`);
+      const json = await res.json();
+      setData(json);
+    } catch (err) {
+      console.error("Failed to load report:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.center}>
+        <ActivityIndicator size="large" color={Colors.rose400} />
+      </LinearGradient>
+    );
+  }
+
+  // 没有任何扫描数据时显示空状态
+  if (!data || data.total_scans === 0) {
+    return (
+      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
+        <SafeAreaView style={styles.center}>
+          <Text style={styles.emptyEmoji}>📊</Text>
+          <Text style={styles.emptyTitle}>No data yet</Text>
+          <Text style={styles.emptySub}>
+            Complete at least one scan to generate your report
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/camera")}
+            activeOpacity={0.85}
+          >
+            <LinearGradient colors={Gradients.roseMain} style={styles.emptyBtn}>
+              <Text style={styles.emptyBtnText}>Start Scanning</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </SafeAreaView>
+      </LinearGradient>
+    );
+  }
+
+  const changePct = data.score_change_pct;
+  const isImproved = changePct >= 0;
+
   return (
     <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={styles.scroll}
         >
-          {/* Header */}
+          {/* ── 标题 ──────────────────────────────────────── */}
           <View style={styles.header}>
             <Text style={styles.title}>Your 30-Day Journey</Text>
-            <Text style={styles.dateRange}>Feb 25 - Mar 27, 2026</Text>
+            {data.date_range && (
+              <Text style={styles.dateRange}>
+                {data.date_range.from} — {data.date_range.to}
+              </Text>
+            )}
           </View>
 
-          {/* 皮肤评分趋势 */}
+          {/* ── 顶部数据卡（3个关键数字） ────────────────── */}
+          <View style={styles.statsRow}>
+            <View style={[styles.statCard, Shadow.card]}>
+              <Text style={styles.statValue}>{data.total_scans}</Text>
+              <Text style={styles.statLabel}>Scans</Text>
+            </View>
+            <View style={[styles.statCard, Shadow.card]}>
+              <Text style={styles.statValue}>{data.avg_skin_score}</Text>
+              <Text style={styles.statLabel}>Avg Score</Text>
+            </View>
+            <View style={[styles.statCard, Shadow.card]}>
+              <Text style={styles.statValue}>{data.streak}</Text>
+              <Text style={styles.statLabel}>Day Streak</Text>
+            </View>
+          </View>
+
+          {/* ── 皮肤评分趋势折线图 ───────────────────────── */}
           <View style={[styles.card, Shadow.card]}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardLabel}>Skin Score Trend</Text>
-              <View style={styles.scoreRow}>
-                <TrendingUp size={16} color={Colors.emerald} />
-                <Text style={styles.scoreValue}>+12%</Text>
-              </View>
-            </View>
-            <TrendLine />
-          </View>
-
-          {/* 甜甜圈图 */}
-          <View style={[styles.card, Shadow.card]}>
-            <Text style={styles.cardLabel}>Condition Breakdown</Text>
-            <View style={styles.donutRow}>
-              <DonutChart />
-              <View style={styles.legendList}>
-                {acneBreakdown.map((item, i) => (
-                  <View key={i} style={styles.legendItem}>
-                    <View
-                      style={[
-                        styles.legendDot,
-                        { backgroundColor: item.color },
-                      ]}
-                    />
-                    <Text style={styles.legendType}>{item.type}</Text>
-                    <Text style={styles.legendCount}>{item.count}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-
-          {/* 前后对比 */}
-          <View style={[styles.card, Shadow.card]}>
-            <Text style={styles.cardLabel}>30-Day Comparison</Text>
-            <View style={styles.compareRow}>
-              <View style={styles.compareItem}>
-                <LinearGradient
-                  colors={["#ffe4e6", "#fce7f3"]}
-                  style={styles.compareThumb}
+              <Text style={styles.cardTitle}>Skin Score Trend</Text>
+              <View style={styles.changeBadge}>
+                {isImproved ? (
+                  <TrendingUp size={14} color={Colors.emerald} />
+                ) : (
+                  <TrendingDown size={14} color={Colors.red} />
+                )}
+                <Text
+                  style={[
+                    styles.changeText,
+                    { color: isImproved ? Colors.emerald : Colors.red },
+                  ]}
                 >
-                  <Text style={{ fontSize: 28 }}>👤</Text>
-                </LinearGradient>
-                <Text style={styles.compareLabel}>Day 1</Text>
+                  {isImproved ? "+" : ""}
+                  {changePct}%
+                </Text>
               </View>
+            </View>
+            <ScoreLineChart data={data.daily_scores} />
+            <View style={styles.chartLabels}>
+              <Text style={styles.chartLabel}>Day 1</Text>
+              <Text style={styles.chartLabel}>Today</Text>
+            </View>
+          </View>
+
+          {/* ── 痘痘类型甜甜圈图 ─────────────────────────── */}
+          <View style={[styles.card, Shadow.card]}>
+            <Text style={styles.cardTitle}>Condition Breakdown</Text>
+            <DonutChart breakdown={data.acne_breakdown} />
+          </View>
+
+          {/* ── 前后对比 ─────────────────────────────────── */}
+          <View style={[styles.card, Shadow.card]}>
+            <Text style={styles.cardTitle}>Before & After</Text>
+            <View style={styles.compareRow}>
+              {/* 第一次扫描 */}
+              <View style={styles.compareItem}>
+                {data.first_scan?.image_uri ? (
+                  <Image
+                    source={{ uri: data.first_scan.image_uri }}
+                    style={styles.compareImg}
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={["#ffe4e6", "#fce7f3"]}
+                    style={styles.compareImg}
+                  >
+                    <Text style={styles.compareEmoji}>👤</Text>
+                  </LinearGradient>
+                )}
+                <Text style={styles.compareLabel}>Day 1</Text>
+                <Text style={styles.compareScore}>
+                  Score {data.first_scan?.score ?? "–"}
+                </Text>
+              </View>
+
+              {/* 中间箭头 + 变化 */}
               <View style={styles.compareDivider}>
                 <View style={styles.dividerLine} />
                 <LinearGradient
-                  colors={Gradients.roseMain}
+                  colors={
+                    isImproved
+                      ? [Colors.emerald, "#10b981"]
+                      : [Colors.red, Colors.rose400]
+                  }
                   style={styles.dividerBadge}
                 >
-                  <Text style={styles.dividerBadgeText}>+22</Text>
+                  <Text style={styles.dividerBadgeText}>
+                    {isImproved ? "↑" : "↓"} {Math.abs(changePct)}%
+                  </Text>
                 </LinearGradient>
                 <View style={styles.dividerLine} />
               </View>
+
+              {/* 最新扫描 */}
               <View style={styles.compareItem}>
-                <LinearGradient
-                  colors={["#d1fae5", "#a7f3d0"]}
-                  style={styles.compareThumb}
-                >
-                  <Text style={{ fontSize: 28 }}>👤</Text>
-                </LinearGradient>
+                {data.latest_scan?.image_uri ? (
+                  <Image
+                    source={{ uri: data.latest_scan.image_uri }}
+                    style={styles.compareImg}
+                  />
+                ) : (
+                  <LinearGradient
+                    colors={["#d1fae5", "#a7f3d0"]}
+                    style={styles.compareImg}
+                  >
+                    <Text style={styles.compareEmoji}>👤</Text>
+                  </LinearGradient>
+                )}
                 <Text style={styles.compareLabel}>Today</Text>
+                <Text style={styles.compareScore}>
+                  Score {data.latest_scan?.score ?? "–"}
+                </Text>
               </View>
             </View>
           </View>
 
-          {/* AI 洞察 */}
-          <Text style={[styles.cardLabel, { marginBottom: Spacing.sm }]}>
-            Beauty Insights
-          </Text>
-          <View style={styles.insightList}>
-            {insights.map((ins, i) => (
-              <LinearGradient
-                key={i}
-                colors={["#fff0f6", "#fff5f5"]}
-                style={[
-                  styles.insightCard,
-                  { borderColor: Colors.rose100, borderWidth: 1 },
-                ]}
-              >
-                <LinearGradient
-                  colors={Gradients.roseMain}
-                  style={styles.insightIcon}
-                >
-                  <ins.Icon size={16} color="#fff" />
-                </LinearGradient>
-                <View style={styles.insightText}>
-                  <Text style={styles.insightTitle}>{ins.title}</Text>
-                  <Text style={styles.insightDesc}>{ins.desc}</Text>
+          {/* ── VIP 区块 ─────────────────────────────────── */}
+          <Text style={styles.sectionTitle}>Deep Analysis</Text>
+
+          {isVip ? (
+            // VIP 用户：显示真实功能（目前是占位，Phase 5 接真实 AI）
+            <View style={[styles.card, Shadow.card]}>
+              <View style={styles.vipActiveHeader}>
+                <Crown size={16} color="#d97706" />
+                <Text style={styles.vipActiveTitle}>VIP Features Unlocked</Text>
+              </View>
+              {VIP_FEATURES.map((f, i) => (
+                <View key={i} style={styles.vipFeatureRow}>
+                  <Check size={14} color={Colors.emerald} />
+                  <Text style={styles.vipFeatureText}>{f}</Text>
                 </View>
-              </LinearGradient>
-            ))}
-          </View>
-
-          {/* VIP 升级卡 */}
-          <LinearGradient
-            colors={["#f472b6", "#ec4899", "#fb7185"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.vipCard}
-          >
-            {/* 装饰圆 */}
-            <View style={styles.vipDecorTopRight} />
-            <View style={styles.vipDecorBottomLeft} />
-
-            <View style={styles.vipHeader}>
-              <View style={styles.crownIcon}>
-                <Crown size={16} color="#fde68a" />
-              </View>
-              <View>
-                <Text style={styles.vipTitle}>Unlock Pro Features</Text>
-                <Text style={styles.vipSubtitle}>AuraSight Premium</Text>
+              ))}
+              <View style={styles.vipComingSoon}>
+                <Text style={styles.vipComingSoonText}>
+                  🚀 AI deep analysis is being trained on your data. Full report
+                  coming soon!
+                </Text>
               </View>
             </View>
-
-            {vipFeatures.map((f, i) => (
-              <View key={i} style={styles.vipFeature}>
-                <Check size={14} color="#fff" />
-                <Text style={styles.vipFeatureText}>{f}</Text>
-              </View>
-            ))}
-
-            <TouchableOpacity activeOpacity={0.85} style={styles.vipButton}>
-              <Text style={styles.vipButtonText}>Try 7 Days Free</Text>
-            </TouchableOpacity>
-          </LinearGradient>
+          ) : (
+            // 免费用户：模糊遮罩 + 升级按钮
+            <VIPBlurCard onUpgrade={() => router.push("/(tabs)/profile")} />
+          )}
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
 }
 
+// ─── 样式 ──────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
-  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.xl,
+  },
+  scroll: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
 
+  // 空状态
+  emptyEmoji: { fontSize: 56, marginBottom: Spacing.md },
+  emptyTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    color: Colors.gray800,
+    marginBottom: Spacing.sm,
+  },
+  emptySub: {
+    fontSize: FontSize.sm,
+    color: Colors.gray400,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: Spacing.xl,
+  },
+  emptyBtn: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+  },
+  emptyBtnText: { color: "#fff", fontWeight: "700", fontSize: FontSize.base },
+
+  // 标题
   header: { marginBottom: Spacing.lg },
-  title: { fontSize: FontSize.xl, fontWeight: "600", color: Colors.gray800 },
-  dateRange: { fontSize: FontSize.sm, color: Colors.gray500, marginTop: 2 },
+  title: { fontSize: FontSize.xl, fontWeight: "700", color: Colors.gray800 },
+  dateRange: { fontSize: FontSize.sm, color: Colors.gray400, marginTop: 4 },
 
+  // 数据卡
+  statsRow: { flexDirection: "row", gap: Spacing.md, marginBottom: Spacing.lg },
+  statCard: {
+    flex: 1,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.xl,
+    padding: Spacing.md,
+    alignItems: "center",
+  },
+  statValue: {
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  statLabel: { fontSize: 10, color: Colors.gray500, marginTop: 2 },
+
+  // 卡片
   card: {
     backgroundColor: Colors.white,
     borderRadius: Radius.xxl,
@@ -313,161 +675,85 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: Spacing.md,
   },
-  cardLabel: {
-    fontSize: FontSize.sm,
-    fontWeight: "500",
-    color: Colors.gray600,
-  },
-  scoreRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  scoreValue: {
-    fontSize: FontSize.lg,
-    fontWeight: "700",
-    color: Colors.emerald,
-  },
-
-  donutRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xl,
-    marginTop: Spacing.md,
-  },
-  donutCenter: {
-    position: "absolute",
-    inset: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  donutTotal: {
-    fontSize: FontSize.xxl,
-    fontWeight: "700",
-    color: Colors.gray800,
-  },
-  donutLabel: { fontSize: 9, color: Colors.gray500 },
-
-  legendList: { flex: 1, gap: 8 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 8 },
-  legendDot: { width: 12, height: 12, borderRadius: 6 },
-  legendType: { flex: 1, fontSize: FontSize.xs, color: Colors.gray600 },
-  legendCount: {
-    fontSize: FontSize.xs,
+  cardTitle: {
+    fontSize: FontSize.base,
     fontWeight: "600",
     color: Colors.gray800,
+    marginBottom: Spacing.md,
   },
+  changeBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
+  changeText: { fontSize: FontSize.base, fontWeight: "700" },
+  chartLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 8,
+  },
+  chartLabel: { fontSize: 10, color: Colors.gray400 },
 
+  // 对比
   compareRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: Spacing.lg,
-    marginTop: Spacing.md,
   },
-  compareItem: { alignItems: "center", gap: 8 },
-  compareThumb: {
-    width: 64,
-    height: 80,
+  compareItem: { alignItems: "center", gap: 6 },
+  compareImg: {
+    width: 80,
+    height: 100,
     borderRadius: Radius.xl,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
-  compareLabel: { fontSize: 11, color: Colors.gray500 },
-  compareDivider: { alignItems: "center", gap: 4 },
-  dividerLine: { width: 32, height: 1, backgroundColor: Colors.rose200 },
+  compareEmoji: { fontSize: 36 },
+  compareLabel: { fontSize: FontSize.xs, color: Colors.gray500 },
+  compareScore: { fontSize: 10, color: Colors.gray400 },
+  compareDivider: { alignItems: "center", gap: 6 },
+  dividerLine: { width: 24, height: 1, backgroundColor: Colors.gray200 },
   dividerBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: Radius.full,
   },
-  dividerBadgeText: { color: "#fff", fontSize: FontSize.xs, fontWeight: "600" },
+  dividerBadgeText: { color: "#fff", fontSize: FontSize.xs, fontWeight: "700" },
 
-  insightList: { gap: Spacing.sm, marginBottom: Spacing.lg },
-  insightCard: {
-    flexDirection: "row",
-    gap: Spacing.md,
-    borderRadius: Radius.xl,
-    padding: Spacing.md,
-    alignItems: "flex-start",
-  },
-  insightIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: Radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  insightText: { flex: 1 },
-  insightTitle: {
-    fontSize: FontSize.sm,
+  // Section title
+  sectionTitle: {
+    fontSize: FontSize.base,
     fontWeight: "600",
     color: Colors.gray800,
-    marginBottom: 2,
-  },
-  insightDesc: { fontSize: FontSize.xs, color: Colors.gray600, lineHeight: 18 },
-
-  vipCard: {
-    borderRadius: Radius.xxl,
-    padding: Spacing.xl,
-    overflow: "hidden",
-    position: "relative",
-  },
-  vipDecorTopRight: {
-    position: "absolute",
-    top: -32,
-    right: -32,
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: "rgba(255,255,255,0.1)",
-  },
-  vipDecorBottomLeft: {
-    position: "absolute",
-    bottom: -24,
-    left: -24,
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "rgba(255,255,255,0.1)",
+    marginBottom: Spacing.sm,
   },
 
-  vipHeader: {
+  // VIP 已解锁
+  vipActiveHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
-  crownIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
+  vipActiveTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: "#d97706",
   },
-  vipTitle: { color: "#fff", fontWeight: "600", fontSize: FontSize.base },
-  vipSubtitle: { color: "rgba(255,255,255,0.7)", fontSize: FontSize.xs },
-
-  vipFeature: {
+  vipFeatureRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 6,
+    gap: Spacing.sm,
+    marginBottom: 8,
   },
-  vipFeatureText: { color: "rgba(255,255,255,0.9)", fontSize: FontSize.xs },
-
-  vipButton: {
-    backgroundColor: "#fff",
-    borderRadius: Radius.xl,
-    paddingVertical: 12,
-    alignItems: "center",
+  vipFeatureText: { fontSize: FontSize.sm, color: Colors.gray600 },
+  vipComingSoon: {
+    backgroundColor: "#fff7ed",
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
     marginTop: Spacing.md,
   },
-  vipButtonText: {
-    color: Colors.rose400,
-    fontWeight: "700",
-    fontSize: FontSize.sm,
+  vipComingSoonText: {
+    fontSize: FontSize.xs,
+    color: "#92400e",
+    lineHeight: 18,
   },
 });

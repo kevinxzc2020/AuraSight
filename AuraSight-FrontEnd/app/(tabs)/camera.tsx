@@ -25,6 +25,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
 const { width, height } = Dimensions.get("window");
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
 const ZONES: { label: string; value: BodyZone }[] = [
   { label: "Forehead", value: "face_forehead" },
@@ -100,8 +101,6 @@ export default function CameraScreen() {
     try {
       const userId = await getUserId();
 
-      // 现在用空 detections，等 AI 接入后再填充
-      // TODO: Phase 4 接入 TFLite 模型分析 imageUri
       const mockDetections: Detection[] = [];
 
       await saveScan({
@@ -112,9 +111,27 @@ export default function CameraScreen() {
         detections: mockDetections,
       });
 
+      // 判断任务类型：body zone 是 back/chest 算 body 任务，其余算 face 任务
+      const taskType =
+        activeZone === "back" || activeZone === "chest" ? "body" : "face";
+
+      // 调用积分 API，完成对应任务
+      const ptsRes = await fetch(`${API_URL}/points/${userId}/task`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ task_type: taskType }),
+      }).then((r) => r.json());
+
+      const earned = ptsRes.points_earned ?? 0;
+      const already = earned === 0;
+
       Alert.alert(
-        "✅ Scan Saved!",
-        "Your scan has been recorded. Check History to see your progress.",
+        already ? "✅ Already Done!" : `🎉 +${earned} pts earned!`,
+        already
+          ? "You already completed this task today. Come back tomorrow!"
+          : `${taskType === "face" ? "Face" : "Body"} scan saved! ${
+              ptsRes.streak > 1 ? `🔥 ${ptsRes.streak}-day streak!` : ""
+            }`,
         [
           {
             text: "View History",
@@ -169,7 +186,10 @@ export default function CameraScreen() {
             {(["face", "body"] as const).map((m) => (
               <TouchableOpacity
                 key={m}
-                onPress={() => setMode(m)}
+                onPress={() => {
+                  setMode(m);
+                  setActiveZone(m === "body" ? "back" : "face_chin");
+                }}
                 activeOpacity={0.85}
               >
                 {mode === m ? (
