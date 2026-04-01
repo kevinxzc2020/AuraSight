@@ -36,6 +36,10 @@ import { router } from "expo-router";
 const { width, height } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
+// 底部抽屉固定高度：让相机区域高度可预测
+const DRAWER_H_FACE = 200;
+const DRAWER_H_BODY = 160;
+
 const ZONES: { label: string; value: BodyZone }[] = [
   { label: "Forehead", value: "face_forehead" },
   { label: "L. Cheek", value: "face_cheek_l" },
@@ -54,6 +58,7 @@ async function getUserId(): Promise<string> {
 }
 
 // ─── 头部轮廓 SVG ─────────────────────────────────────────
+// 真实头部形状路径（颧骨最宽，向上收窄额头，向下收窄下巴）
 const HEAD_PATH = `
   M 110,18
   C 145,18 178,35 190,65
@@ -69,21 +74,28 @@ const HEAD_PATH = `
   Z
 `;
 
-function HeadOutline({ countdown }: { countdown: number | null }) {
+// camH: 相机区域实际高度（屏幕高度减去底部抽屉）
+// 这样轮廓和提示文字的定位都基于相机区域而不是整个屏幕
+function HeadOutline({
+  countdown,
+  camH,
+}: {
+  countdown: number | null;
+  camH: number;
+}) {
   const active = countdown !== null;
   const color = active ? "rgba(52,211,153,0.9)" : "rgba(244,114,182,0.75)";
-  // 用相对于宽度的固定比例，不依赖屏幕高度
   const guideW = width * 0.58;
-  const guideH = guideW * 1.35; // 头部大约是宽的1.35倍高
+  const guideH = guideW * 1.35;
   const guideX = (width - guideW) / 2;
-  const guideY = height * 0.12; // 从顶部12%开始
+  const guideY = camH * 0.14;
   const scaleX = guideW / 220;
   const scaleY = guideH / 300;
 
   return (
     <Svg
       width={width}
-      height={height}
+      height={camH}
       style={StyleSheet.absoluteFillObject}
       pointerEvents="none"
     >
@@ -102,15 +114,15 @@ function HeadOutline({ countdown }: { countdown: number | null }) {
   );
 }
 
-function BodyOutline() {
+function BodyOutline({ camH }: { camH: number }) {
   const headCX = width / 2;
-  const headCY = height * 0.13;
+  const headCY = camH * 0.14;
   const headR = width * 0.1;
   const shoulderY = headCY + headR * 1.6;
   const shoulderW = width * 0.42;
   const hipW = width * 0.32;
-  const hipY = shoulderY + height * 0.28;
-  const footY = height * 0.72;
+  const hipY = shoulderY + camH * 0.3;
+  const footY = camH * 0.82;
   const bodyPath = `
     M ${headCX - shoulderW / 2},${shoulderY}
     L ${headCX - hipW / 2},${hipY}
@@ -123,7 +135,7 @@ function BodyOutline() {
   return (
     <Svg
       width={width}
-      height={height}
+      height={camH}
       style={StyleSheet.absoluteFillObject}
       pointerEvents="none"
     >
@@ -164,11 +176,7 @@ function CountdownOverlay({ count }: { count: number }) {
 }
 const cd = StyleSheet.create({
   wrapper: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -195,11 +203,15 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // 相机区域高度 = 屏幕高度 - Tab栏(~80px) - 底部抽屉
+  // Tab 栏高度由 expo-router 管理，这里用近似值
+  const drawerH = mode === "face" ? DRAWER_H_FACE : DRAWER_H_BODY;
+  const camH = height - drawerH - 80; // 80 ≈ Tab bar height
+
   useEffect(() => {
     if (!permission?.granted) requestPermission();
   }, []);
 
-  // 组件卸载时清除倒计时
   useEffect(() => {
     return () => {
       if (countdownTimer.current) clearInterval(countdownTimer.current);
@@ -209,7 +221,6 @@ export default function CameraScreen() {
   // ─── 倒计时拍摄 ───────────────────────────────────────
   function startCountdown() {
     if (countdown !== null) {
-      // 取消倒计时
       if (countdownTimer.current) clearInterval(countdownTimer.current);
       countdownTimer.current = null;
       setCountdown(null);
@@ -235,21 +246,16 @@ export default function CameraScreen() {
   // ─── 立即拍照 ─────────────────────────────────────────
   async function handleCapture() {
     if (!cameraRef.current || saving) return;
-
     try {
       setSaving(true);
-
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.85,
         base64: false,
         skipProcessing: false,
       });
-
       if (!photo) throw new Error("No photo taken");
 
       let finalUri = photo.uri;
-
-      // 前置摄像头：水平镜像翻转
       if (facing === "front") {
         const flipped = await ImageManipulator.manipulateAsync(
           photo.uri,
@@ -258,11 +264,9 @@ export default function CameraScreen() {
         );
         finalUri = flipped.uri;
       }
-
       await handleSave(finalUri);
     } catch (err) {
       Alert.alert("Error", "Failed to take photo. Please try again.");
-      console.error("Capture error:", err);
     } finally {
       setSaving(false);
     }
@@ -290,7 +294,6 @@ export default function CameraScreen() {
   async function handleSave(imageUri: string) {
     try {
       const userId = await getUserId();
-
       await saveScan({
         user_id: userId,
         scan_date: new Date().toISOString(),
@@ -298,10 +301,8 @@ export default function CameraScreen() {
         image_uri: imageUri,
         detections: [] as Detection[],
       });
-
       const taskType =
         activeZone === "back" || activeZone === "chest" ? "body" : "face";
-
       const ptsRes = await fetch(`${API_URL}/points/${userId}/task`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -309,11 +310,9 @@ export default function CameraScreen() {
       }).then((r) => r.json());
 
       const earned = ptsRes.points_earned ?? 0;
-      const already = earned === 0;
-
       Alert.alert(
-        already ? "✅ Already Done!" : `🎉 +${earned} pts earned!`,
-        already
+        earned === 0 ? "✅ Already Done!" : `🎉 +${earned} pts earned!`,
+        earned === 0
           ? "You already completed this task today. Come back tomorrow!"
           : `${taskType === "face" ? "Face" : "Body"} scan saved!${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
         [
@@ -324,9 +323,8 @@ export default function CameraScreen() {
           { text: "OK", style: "cancel" },
         ],
       );
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to save scan. Please try again.");
-      console.error("Save error:", err);
     }
   }
 
@@ -352,110 +350,119 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {/* 相机 — flex:1 让它占满除底部抽屉以外的空间 */}
-      <CameraView
-        ref={cameraRef}
-        style={styles.camera}
-        facing={facing}
-        flash={flash ? "on" : "off"}
-      />
+      {/* ── 카메라 영역 ──────────────────────────────────
+          cameraWrapper는 고정 높이를 갖습니다.
+          카메라와 오버레이는 모두 이 안에서 absoluteFill로 채워집니다.
+          이렇게 하면 hint의 bottom:20이 카메라 영역 기준으로 정확히 위치합니다. */}
+      <View style={[styles.cameraWrapper, { height: camH }]}>
+        {/* 실제 카메라 */}
+        <CameraView
+          ref={cameraRef}
+          style={StyleSheet.absoluteFillObject}
+          facing={facing}
+          flash={flash ? "on" : "off"}
+        />
 
-      {/* 覆盖层 — absoluteFill 完整覆盖相机区域 */}
-      <View style={styles.overlay}>
-        {/* 顶部控件 */}
-        <SafeAreaView style={styles.topControls}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => {
-              if (countdownTimer.current) clearInterval(countdownTimer.current);
-              router.back();
-            }}
-          >
-            <X size={20} color="#fff" />
-          </TouchableOpacity>
+        {/* 오버레이 레이어 */}
+        <View style={StyleSheet.absoluteFillObject}>
+          {/* 顶部控件 */}
+          <SafeAreaView style={styles.topControls}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => {
+                if (countdownTimer.current)
+                  clearInterval(countdownTimer.current);
+                router.back();
+              }}
+            >
+              <X size={20} color="#fff" />
+            </TouchableOpacity>
 
-          <View style={styles.modeToggle}>
-            {(["face", "body"] as const).map((m) => (
-              <TouchableOpacity
-                key={m}
-                onPress={() => {
-                  if (countdownTimer.current) {
-                    clearInterval(countdownTimer.current);
-                    setCountdown(null);
-                  }
-                  setMode(m);
-                  setActiveZone(m === "body" ? "back" : "face_chin");
-                }}
-                activeOpacity={0.85}
-              >
-                {mode === m ? (
-                  <LinearGradient
-                    colors={Gradients.roseMain}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.modeActive}
-                  >
-                    <Text style={styles.modeActiveText}>
-                      {m.charAt(0).toUpperCase() + m.slice(1)}
-                    </Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={styles.modeInactive}>
-                    <Text style={styles.modeInactiveText}>
-                      {m.charAt(0).toUpperCase() + m.slice(1)}
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
+            <View style={styles.modeToggle}>
+              {(["face", "body"] as const).map((m) => (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => {
+                    if (countdownTimer.current) {
+                      clearInterval(countdownTimer.current);
+                      setCountdown(null);
+                    }
+                    setMode(m);
+                    setActiveZone(m === "body" ? "back" : "face_chin");
+                  }}
+                  activeOpacity={0.85}
+                >
+                  {mode === m ? (
+                    <LinearGradient
+                      colors={Gradients.roseMain}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.modeActive}
+                    >
+                      <Text style={styles.modeActiveText}>
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </Text>
+                    </LinearGradient>
+                  ) : (
+                    <View style={styles.modeInactive}>
+                      <Text style={styles.modeInactiveText}>
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TouchableOpacity
+              style={[styles.iconButton, flash && styles.iconButtonActive]}
+              onPress={() => setFlash((f) => !f)}
+            >
+              {flash ? (
+                <Zap size={20} color="#fde68a" />
+              ) : (
+                <ZapOff size={20} color="#fff" />
+              )}
+            </TouchableOpacity>
+          </SafeAreaView>
+
+          {/* 轮廓引导 */}
+          {mode === "face" ? (
+            <HeadOutline countdown={countdown} camH={camH} />
+          ) : (
+            <BodyOutline camH={camH} />
+          )}
+
+          {/* 倒计时 */}
+          {countdown !== null && <CountdownOverlay count={countdown} />}
+
+          {/* 提示文字 — bottom:20은 이제 카메라 영역 기준으로 정확히 위치 */}
+          <View style={styles.hintWrapper} pointerEvents="none">
+            <View style={[styles.hint, countdown !== null && styles.hintGreen]}>
+              <Text style={styles.hintText}>
+                {countdown !== null
+                  ? `Hold still... ${countdown}`
+                  : mode === "face"
+                    ? "Tap ⏱ for auto-shoot · tap 📷 for instant"
+                    : "Step back for full body view"}
+              </Text>
+            </View>
           </View>
 
+          {/* 翻转按钮 */}
           <TouchableOpacity
-            style={[styles.iconButton, flash && styles.iconButtonActive]}
-            onPress={() => setFlash((f) => !f)}
+            style={styles.flipButton}
+            onPress={() => setFacing((f) => (f === "front" ? "back" : "front"))}
           >
-            {flash ? (
-              <Zap size={20} color="#fde68a" />
-            ) : (
-              <ZapOff size={20} color="#fff" />
-            )}
+            <RotateCcw size={20} color="#fff" />
           </TouchableOpacity>
-        </SafeAreaView>
-
-        {/* 头部/身体轮廓 */}
-        {mode === "face" ? (
-          <HeadOutline countdown={countdown} />
-        ) : (
-          <BodyOutline />
-        )}
-
-        {/* 倒计时数字 */}
-        {countdown !== null && <CountdownOverlay count={countdown} />}
-
-        {/* 底部提示 */}
-        <View style={styles.hintWrapper} pointerEvents="none">
-          <View style={[styles.hint, countdown !== null && styles.hintGreen]}>
-            <Text style={styles.hintText}>
-              {countdown !== null
-                ? `Hold still... ${countdown}`
-                : mode === "face"
-                  ? "Tap ⏱ for auto-shoot · tap 📷 for instant"
-                  : "Step back for full body view"}
-            </Text>
-          </View>
         </View>
-
-        {/* 翻转按钮 */}
-        <TouchableOpacity
-          style={styles.flipButton}
-          onPress={() => setFacing((f) => (f === "front" ? "back" : "front"))}
-        >
-          <RotateCcw size={20} color="#fff" />
-        </TouchableOpacity>
       </View>
 
-      {/* 底部抽屉 */}
-      <View style={styles.bottomDrawer}>
+      {/* ── 底部抽屉 ─────────────────────────────────────
+          고정 높이를 가지며 flex:1을 사용하지 않습니다.
+          이렇게 하면 빈 공간이 생기지 않습니다. */}
+      <View style={[styles.bottomDrawer, { height: drawerH }]}>
         <View style={styles.drawerHandle} />
 
         {mode === "face" && (
@@ -486,12 +493,10 @@ export default function CameraScreen() {
         )}
 
         <View style={styles.captureRow}>
-          {/* 相册 */}
           <TouchableOpacity style={styles.sideButton} onPress={handlePickImage}>
             <ImageIcon size={26} color={Colors.gray500} />
           </TouchableOpacity>
 
-          {/* 即拍快门 */}
           <TouchableOpacity
             style={styles.shutterOuter}
             onPress={handleCapture}
@@ -521,12 +526,8 @@ export default function CameraScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* 倒计时拍摄按钮 */}
           <TouchableOpacity
-            style={[
-              styles.sideButton,
-              countdown !== null && styles.sideButtonActive,
-            ]}
+            style={[styles.sideButton, countdown !== null && { opacity: 1 }]}
             onPress={startCountdown}
             disabled={saving}
           >
@@ -550,10 +551,9 @@ export default function CameraScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-  // flex:1 让相机占满除底部抽屉之外的所有空间
-  camera: { flex: 1, width },
-  // absoluteFill 让覆盖层和相机完全重叠
-  overlay: { ...StyleSheet.absoluteFillObject, bottom: undefined },
+
+  // cameraWrapper는 고정 높이를 갖습니다 — height prop으로 동적 설정
+  cameraWrapper: { width, overflow: "hidden" },
 
   permissionContainer: {
     flex: 1,
@@ -646,12 +646,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  // 底部抽屉 — 고정 높이, flex:1 아님
   bottomDrawer: {
-    flex: 1,
     backgroundColor: "#fff",
     paddingTop: 10,
-    paddingBottom: 28,
     paddingHorizontal: Spacing.lg,
+    paddingBottom: 16,
   },
   drawerHandle: {
     width: 36,
@@ -666,7 +666,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     gap: 6,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     flexWrap: "wrap",
   },
   zoneActive: {
@@ -695,7 +695,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
-  sideButtonActive: { opacity: 1 },
   cancelDot: {
     position: "absolute",
     top: 6,
