@@ -85,10 +85,10 @@ function HeadOutline({
 }) {
   const active = countdown !== null;
   const color = active ? "rgba(52,211,153,0.9)" : "rgba(244,114,182,0.75)";
-  const guideW = width * 0.58;
-  const guideH = guideW * 1.35;
+  const guideW = width * 0.72; // 더 넓게
+  const guideH = guideW * 1.4; // 더 높게
   const guideX = (width - guideW) / 2;
-  const guideY = camH * 0.14;
+  const guideY = camH * 0.08; // 더 위에서 시작
   const scaleX = guideW / 220;
   const scaleY = guideH / 300;
 
