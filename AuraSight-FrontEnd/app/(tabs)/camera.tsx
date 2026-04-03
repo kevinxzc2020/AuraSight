@@ -552,7 +552,7 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
 
-  // cameraWrapper는 고정 높이를 갖습니다 — height prop으로 동적 설정
+  // cameraWrapper
   cameraWrapper: { width, overflow: "hidden" },
 
   permissionContainer: {
