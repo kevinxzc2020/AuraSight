@@ -13,7 +13,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
-import Svg, { Path, G, Ellipse } from "react-native-svg";
 import {
   X,
   Zap,
@@ -33,12 +32,12 @@ import { saveScan, BodyZone, Detection } from "../../lib/mongodb";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
-// 底部抽屉固定高度：让相机区域高度可预测
-const DRAWER_H_FACE = 200;
-const DRAWER_H_BODY = 160;
+// 底部抽屉固定高度
+const DRAWER_H_FACE = 170;
+const DRAWER_H_BODY = 170;
 
 const ZONES: { label: string; value: BodyZone }[] = [
   { label: "Forehead", value: "face_forehead" },
@@ -55,110 +54,6 @@ async function getUserId(): Promise<string> {
     await AsyncStorage.setItem("@aurasight_user_id", id);
   }
   return id;
-}
-
-// ─── 头部轮廓 SVG ─────────────────────────────────────────
-// 真实头部形状路径（颧骨最宽，向上收窄额头，向下收窄下巴）
-const HEAD_PATH = `
-  M 110,18
-  C 145,18 178,35 190,65
-  C 198,85 196,110 190,130
-  C 185,148 178,162 172,175
-  C 165,190 158,202 148,215
-  C 138,228 125,238 110,242
-  C 95,238 82,228 72,215
-  C 62,202 55,190 48,175
-  C 42,162 35,148 30,130
-  C 24,110 22,85 30,65
-  C 42,35 75,18 110,18
-  Z
-`;
-
-// camH: 相机区域实际高度（屏幕高度减去底部抽屉）
-// 这样轮廓和提示文字的定位都基于相机区域而不是整个屏幕
-function HeadOutline({
-  countdown,
-  camH,
-}: {
-  countdown: number | null;
-  camH: number;
-}) {
-  const active = countdown !== null;
-  const color = active ? "rgba(52,211,153,0.9)" : "rgba(244,114,182,0.75)";
-  const guideW = width * 0.72; // 더 넓게
-  const guideH = guideW * 1.4; // 더 높게
-  const guideX = (width - guideW) / 2;
-  const guideY = camH * 0.08; // 더 위에서 시작
-  const scaleX = guideW / 220;
-  const scaleY = guideH / 300;
-
-  return (
-    <Svg
-      width={width}
-      height={camH}
-      style={StyleSheet.absoluteFillObject}
-      pointerEvents="none"
-    >
-      <G
-        transform={`translate(${guideX}, ${guideY}) scale(${scaleX}, ${scaleY})`}
-      >
-        <Path
-          d={HEAD_PATH}
-          fill={active ? "rgba(52,211,153,0.07)" : "none"}
-          stroke={color}
-          strokeWidth={3.5 / Math.max(scaleX, scaleY)}
-          strokeDasharray={active ? undefined : `${12 / scaleX} ${6 / scaleX}`}
-        />
-      </G>
-    </Svg>
-  );
-}
-
-function BodyOutline({ camH }: { camH: number }) {
-  const headCX = width / 2;
-  const headCY = camH * 0.14;
-  const headR = width * 0.1;
-  const shoulderY = headCY + headR * 1.6;
-  const shoulderW = width * 0.42;
-  const hipW = width * 0.32;
-  const hipY = shoulderY + camH * 0.3;
-  const footY = camH * 0.82;
-  const bodyPath = `
-    M ${headCX - shoulderW / 2},${shoulderY}
-    L ${headCX - hipW / 2},${hipY}
-    L ${headCX - hipW / 2},${footY}
-    L ${headCX + hipW / 2},${footY}
-    L ${headCX + hipW / 2},${hipY}
-    L ${headCX + shoulderW / 2},${shoulderY}
-    Z
-  `;
-  return (
-    <Svg
-      width={width}
-      height={camH}
-      style={StyleSheet.absoluteFillObject}
-      pointerEvents="none"
-    >
-      <Ellipse
-        cx={headCX}
-        cy={headCY}
-        rx={headR}
-        ry={headR * 1.2}
-        fill="none"
-        stroke="rgba(244,114,182,0.75)"
-        strokeWidth={2.5}
-        strokeDasharray="10 5"
-      />
-      <Path
-        d={bodyPath}
-        fill="none"
-        stroke="rgba(244,114,182,0.75)"
-        strokeWidth={2.5}
-        strokeDasharray="10 5"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
 }
 
 // ─── 倒计时大数字 ─────────────────────────────────────────
@@ -203,10 +98,9 @@ export default function CameraScreen() {
   const cameraRef = useRef<CameraView>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 相机区域高度 = 屏幕高度 - Tab栏(~80px) - 底部抽屉
-  // Tab 栏高度由 expo-router 管理，这里用近似值
+  // 直接用 flex:1 让相机区域填满剩余空间
+  // 不再手动计算高度，避免状态栏/安全区域计算误差
   const drawerH = mode === "face" ? DRAWER_H_FACE : DRAWER_H_BODY;
-  const camH = height - drawerH - 80; // 80 ≈ Tab bar height
 
   useEffect(() => {
     if (!permission?.granted) requestPermission();
@@ -226,10 +120,8 @@ export default function CameraScreen() {
       setCountdown(null);
       return;
     }
-
     let count = 3;
     setCountdown(count);
-
     countdownTimer.current = setInterval(() => {
       count -= 1;
       if (count <= 0) {
@@ -256,6 +148,7 @@ export default function CameraScreen() {
       if (!photo) throw new Error("No photo taken");
 
       let finalUri = photo.uri;
+      // 前置摄像头自动水平翻转，让保存的照片方向正确
       if (facing === "front") {
         const flipped = await ImageManipulator.manipulateAsync(
           photo.uri,
@@ -265,7 +158,7 @@ export default function CameraScreen() {
         finalUri = flipped.uri;
       }
       await handleSave(finalUri);
-    } catch (err) {
+    } catch {
       Alert.alert("Error", "Failed to take photo. Please try again.");
     } finally {
       setSaving(false);
@@ -328,6 +221,7 @@ export default function CameraScreen() {
     }
   }
 
+  // ─── 权限页面 ─────────────────────────────────────────
   if (!permission?.granted) {
     return (
       <View style={styles.permissionContainer}>
@@ -350,12 +244,8 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ── 카메라 영역 ──────────────────────────────────
-          cameraWrapper는 고정 높이를 갖습니다.
-          카메라와 오버레이는 모두 이 안에서 absoluteFill로 채워집니다.
-          이렇게 하면 hint의 bottom:20이 카메라 영역 기준으로 정확히 위치합니다. */}
-      <View style={[styles.cameraWrapper, { height: camH }]}>
-        {/* 실제 카메라 */}
+      {/* 카메라 영역 — flex:1 로 나머지 공간을 모두 채웁니다 */}
+      <View style={styles.cameraWrapper}>
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFillObject}
@@ -363,7 +253,7 @@ export default function CameraScreen() {
           flash={flash ? "on" : "off"}
         />
 
-        {/* 오버레이 레이어 */}
+        {/* 오버레이 — 카메라 위에 컨트롤 레이어 */}
         <View style={StyleSheet.absoluteFillObject}>
           {/* 顶部控件 */}
           <SafeAreaView style={styles.topControls}>
@@ -426,17 +316,10 @@ export default function CameraScreen() {
             </TouchableOpacity>
           </SafeAreaView>
 
-          {/* 轮廓引导 */}
-          {mode === "face" ? (
-            <HeadOutline countdown={countdown} camH={camH} />
-          ) : (
-            <BodyOutline camH={camH} />
-          )}
-
-          {/* 倒计时 */}
+          {/* 倒计时数字 */}
           {countdown !== null && <CountdownOverlay count={countdown} />}
 
-          {/* 提示文字 — bottom:20은 이제 카메라 영역 기준으로 정확히 위치 */}
+          {/* 提示文字 */}
           <View style={styles.hintWrapper} pointerEvents="none">
             <View style={[styles.hint, countdown !== null && styles.hintGreen]}>
               <Text style={styles.hintText}>
@@ -459,9 +342,7 @@ export default function CameraScreen() {
         </View>
       </View>
 
-      {/* ── 底部抽屉 ─────────────────────────────────────
-          고정 높이를 가지며 flex:1을 사용하지 않습니다.
-          이렇게 하면 빈 공간이 생기지 않습니다. */}
+      {/* 底部抽屉 — 고정 높이, flex 없음 */}
       <View style={[styles.bottomDrawer, { height: drawerH }]}>
         <View style={styles.drawerHandle} />
 
@@ -493,10 +374,12 @@ export default function CameraScreen() {
         )}
 
         <View style={styles.captureRow}>
+          {/* 相册 */}
           <TouchableOpacity style={styles.sideButton} onPress={handlePickImage}>
             <ImageIcon size={26} color={Colors.gray500} />
           </TouchableOpacity>
 
+          {/* 即拍快门 */}
           <TouchableOpacity
             style={styles.shutterOuter}
             onPress={handleCapture}
@@ -526,8 +409,9 @@ export default function CameraScreen() {
             </View>
           </TouchableOpacity>
 
+          {/* 倒计时按钮 */}
           <TouchableOpacity
-            style={[styles.sideButton, countdown !== null && { opacity: 1 }]}
+            style={styles.sideButton}
             onPress={startCountdown}
             disabled={saving}
           >
@@ -551,9 +435,7 @@ export default function CameraScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
-
-  // cameraWrapper
-  cameraWrapper: { width, overflow: "hidden" },
+  cameraWrapper: { flex: 1, width, overflow: "hidden" },
 
   permissionContainer: {
     flex: 1,
@@ -646,12 +528,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // 底部抽屉 — 고정 높이, flex:1 아님
   bottomDrawer: {
     backgroundColor: "#fff",
     paddingTop: 10,
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 16,
+    paddingBottom: 12,
   },
   drawerHandle: {
     width: 36,
