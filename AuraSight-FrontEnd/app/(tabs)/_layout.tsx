@@ -2,27 +2,8 @@ import { Tabs } from "expo-router";
 import { Camera, Clock, FileText, Home, User } from "lucide-react-native";
 import { StyleSheet } from "react-native";
 import { Colors } from "../../constants/theme";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useEffect } from "react";
-import { router } from "expo-router";
 
 export default function TabLayout() {
-  // 在根布局组件里加入这个 useEffect
-  // useEffect(() => {
-  //   async function checkOnboarding() {
-  //     const done = await AsyncStorage.getItem("@aurasight_onboarding_done");
-  //     if (!done) {
-  //       router.replace("/onboarding");
-  //     }
-  //   }
-  //   checkOnboarding();
-  // }, []);
-
-  useEffect(() => {
-    // 开发阶段：强制每次显示 Onboarding，调完设计再改回来
-    router.replace("/onboarding");
-  }, []);
-
   return (
     <Tabs
       screenOptions={{
@@ -91,8 +72,5 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingTop: 6,
   },
-  tabLabel: {
-    fontSize: 10,
-    fontWeight: "500",
-  },
+  tabLabel: { fontSize: 10, fontWeight: "500" },
 });

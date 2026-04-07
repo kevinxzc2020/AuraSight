@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  ScrollView,
   Animated,
   Platform,
   StatusBar,
@@ -18,12 +17,7 @@ import * as Haptics from "expo-haptics";
 
 const { width, height } = Dimensions.get("window");
 
-// 极致弹簧配置
-const RAGE_SPRING = {
-  tension: 180,
-  friction: 12,
-  useNativeDriver: true,
-};
+const SPRING = { tension: 180, friction: 12, useNativeDriver: true };
 
 const PAGES = [
   {
@@ -54,62 +48,39 @@ const PAGES = [
   },
 ];
 
-// --- 修复版进度预览 (不再报错，不再重叠) ---
-function MilestonePreview({ active }: { active: boolean }) {
-  const progressAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (active) {
-      Animated.spring(progressAnim, {
-        toValue: 1,
-        tension: 20,
-        friction: 8,
-        useNativeDriver: false, // 必须为 false 才能动画化 width
-      }).start();
-    } else {
-      progressAnim.setValue(0);
-    }
-  }, [active]);
-
-  const RenderMilestone = ({
-    label,
-    index,
-  }: {
-    label: string;
-    index: number;
-  }) => (
-    <View style={ms.milestoneRow}>
-      <View style={ms.lockIcon}>
-        <Text style={{ fontSize: 12 }}>🔒</Text>
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={ms.milestoneName}>{label}</Text>
-        <View style={ms.progressTrack}>
-          <Animated.View
-            style={[
-              ms.progressFill,
-              {
-                width: progressAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: ["0%", `${70 + index * 15}%`],
-                }),
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  );
+// 进度条用静态 View 而不是 Animated.View，避免和父级
+// Animated.ScrollView 的 useNativeDriver: true 产生冲突
+function MilestonePreview() {
+  const milestones = [
+    { label: "Trend Chart", pct: 65 },
+    { label: "AI Report", pct: 80 },
+  ];
 
   return (
-    <View style={ms.container}>
-      <RenderMilestone label="Trend Chart" index={0} />
-      <RenderMilestone label="AI Report" index={1} />
+    <View style={st.msBox}>
+      <View style={st.msTodayRow}>
+        <Text style={st.msTodayLabel}>DAILY GOAL</Text>
+        <View style={st.msBadge}>
+          <Text style={st.msBadgeText}>📸 +50 pts</Text>
+        </View>
+      </View>
+      {milestones.map((m, i) => (
+        <View key={i} style={st.msRow}>
+          <View style={st.msLock}>
+            <Text style={{ fontSize: 12 }}>🔒</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={st.msName}>{m.label}</Text>
+            <View style={st.msTrack}>
+              <View style={[st.msFill, { width: `${m.pct}%` }]} />
+            </View>
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
 
-// --- 单页组件 ---
 function OnboardingPage({ page, isVisible, index, scrollX }: any) {
   const emojiScale = useRef(new Animated.Value(0)).current;
   const contentFade = useRef(new Animated.Value(0)).current;
@@ -118,13 +89,13 @@ function OnboardingPage({ page, isVisible, index, scrollX }: any) {
   useEffect(() => {
     if (isVisible) {
       Animated.parallel([
-        Animated.spring(emojiScale, { toValue: 1, ...RAGE_SPRING }),
+        Animated.spring(emojiScale, { toValue: 1, ...SPRING }),
         Animated.timing(contentFade, {
           toValue: 1,
           duration: 600,
           useNativeDriver: true,
         }),
-        Animated.spring(contentY, { toValue: 0, ...RAGE_SPRING }),
+        Animated.spring(contentY, { toValue: 0, ...SPRING }),
       ]).start();
     } else {
       emojiScale.setValue(0);
@@ -147,12 +118,11 @@ function OnboardingPage({ page, isVisible, index, scrollX }: any) {
 
   return (
     <Animated.View
-      style={[pg.container, { width, opacity, transform: [{ scale }] }]}
+      style={[st.page, { width, opacity, transform: [{ scale }] }]}
     >
-      <Animated.Text style={[pg.emoji, { transform: [{ scale: emojiScale }] }]}>
+      <Animated.Text style={[st.emoji, { transform: [{ scale: emojiScale }] }]}>
         {page.emoji}
       </Animated.Text>
-
       <Animated.View
         style={{
           opacity: contentFade,
@@ -161,47 +131,49 @@ function OnboardingPage({ page, isVisible, index, scrollX }: any) {
           alignItems: "center",
         }}
       >
-        <Text style={pg.title}>{page.title}</Text>
-        <Text style={pg.subtitle}>{page.subtitle}</Text>
-        {page.showProgress && <MilestonePreview active={isVisible} />}
+        <Text style={st.title}>{page.title}</Text>
+        <Text style={st.subtitle}>{page.subtitle}</Text>
+        {page.showProgress && <MilestonePreview />}
       </Animated.View>
     </Animated.View>
   );
 }
 
-// --- 主程序 ---
 export default function OnboardingScreen() {
   const [currentPage, setCurrentPage] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<any>(null);
 
   useEffect(() => {
-    AsyncStorage.setItem("@aurasight_onboarding_done", "false");
     StatusBar.setBarStyle("light-content");
-    StatusBar.setBackgroundColor("transparent");
-    StatusBar.setTranslucent(true);
+    if (Platform.OS === "android") {
+      StatusBar.setBackgroundColor("transparent");
+      StatusBar.setTranslucent(true);
+    }
   }, []);
 
-  const handleScroll = (e: any) => {
+  function handleScroll(e: any) {
     const page = Math.round(e.nativeEvent.contentOffset.x / width);
     if (page !== currentPage) {
       setCurrentPage(page);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-  };
+  }
 
-  const finish = async (target: string) => {
+  async function finish(target: string) {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     await AsyncStorage.setItem("@aurasight_onboarding_done", "true");
     router.replace(target as any);
-  };
+  }
 
   return (
-    <View style={styles.container}>
+    <View style={st.container}>
       <LinearGradient
         colors={["#030308", "#1a0a14", "#030308"]}
         style={StyleSheet.absoluteFillObject}
       />
+      <View style={st.glowTop} />
+      <View style={st.glowBottom} />
 
       <Animated.ScrollView
         ref={scrollRef}
@@ -226,22 +198,23 @@ export default function OnboardingScreen() {
         ))}
       </Animated.ScrollView>
 
-      {/* 固定底部区域 */}
-      <SafeAreaView style={styles.footer} pointerEvents="box-none">
-        <View style={styles.dotContainer}>
+      <SafeAreaView style={st.footer}>
+        <View style={st.dotRow}>
           {PAGES.map((_, i) => {
-            const dotWidth = scrollX.interpolate({
+            // scaleX 是 transform 属性，完全支持 useNativeDriver: true
+            // 视觉效果和 width 动画一样，但不会产生冲突
+            const scaleX = scrollX.interpolate({
               inputRange: [(i - 1) * width, i * width, (i + 1) * width],
-              outputRange: [8, 30, 8],
+              outputRange: [1, 3.5, 1], // 3.5x 宽度放大，视觉上等同于从8px变成28px
               extrapolate: "clamp",
             });
             return (
               <Animated.View
                 key={i}
                 style={[
-                  styles.dot,
+                  st.dot,
                   {
-                    width: dotWidth,
+                    transform: [{ scaleX }],
                     backgroundColor:
                       i === currentPage ? "#f472b6" : "rgba(255,255,255,0.2)",
                   },
@@ -251,7 +224,7 @@ export default function OnboardingScreen() {
           })}
         </View>
 
-        <View style={styles.btnWrapper}>
+        <View style={st.btnArea}>
           {currentPage < PAGES.length - 1 ? (
             <TouchableOpacity
               onPress={() =>
@@ -264,29 +237,29 @@ export default function OnboardingScreen() {
             >
               <LinearGradient
                 colors={["#f472b6", "#fb7185"]}
-                style={styles.btnMain}
+                style={st.btnMain}
               >
-                <Text style={styles.btnTextMain}>Continue</Text>
+                <Text style={st.btnMainText}>Continue</Text>
               </LinearGradient>
             </TouchableOpacity>
           ) : (
-            <View style={styles.ctaGroup}>
+            <View style={st.ctaGroup}>
               <TouchableOpacity
                 onPress={() => finish("/(tabs)/profile")}
                 activeOpacity={0.8}
               >
                 <LinearGradient
                   colors={["#f472b6", "#fb7185"]}
-                  style={styles.btnMain}
+                  style={st.btnMain}
                 >
-                  <Text style={styles.btnTextMain}>Create Account</Text>
+                  <Text style={st.btnMainText}>Create Account</Text>
                 </LinearGradient>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => finish("/(tabs)")}
-                style={styles.btnSecondary}
+                style={st.btnSecondary}
               >
-                <Text style={styles.btnTextSecondary}>Explore as Guest</Text>
+                <Text style={st.btnSecondaryText}>Explore as Guest</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -296,13 +269,33 @@ export default function OnboardingScreen() {
   );
 }
 
-const pg = StyleSheet.create({
-  container: {
+const st = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#030308" },
+  glowTop: {
+    position: "absolute",
+    top: -60,
+    left: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: "rgba(244,114,182,0.1)",
+  },
+  glowBottom: {
+    position: "absolute",
+    bottom: 100,
+    right: -40,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "rgba(251,113,133,0.07)",
+  },
+
+  page: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 40,
-    paddingBottom: 180, // 核心修复：留出巨大的底部空间给指示器
+    paddingBottom: 180,
   },
   emoji: { fontSize: 100, marginBottom: 20, textAlign: "center" },
   title: {
@@ -319,46 +312,9 @@ const pg = StyleSheet.create({
     color: "rgba(255,255,255,0.5)",
     textAlign: "center",
     lineHeight: 24,
+    marginBottom: 20,
   },
-});
 
-const ms = StyleSheet.create({
-  container: {
-    width: "100%",
-    backgroundColor: "rgba(255,255,255,0.06)",
-    padding: 20,
-    borderRadius: 24,
-    gap: 15,
-    marginTop: 25,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.1)",
-  },
-  milestoneRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  lockIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.08)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  milestoneName: {
-    fontSize: 14,
-    color: "#fff",
-    fontWeight: "600",
-    marginBottom: 4,
-  },
-  progressTrack: {
-    height: 6,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    borderRadius: 3,
-    overflow: "hidden",
-  },
-  progressFill: { height: "100%", backgroundColor: "#f472b6" },
-});
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#030308" },
   footer: {
     position: "absolute",
     bottom: 0,
@@ -367,31 +323,74 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingBottom: 40,
   },
-  dotContainer: {
+  dotRow: {
     flexDirection: "row",
     gap: 8,
-    marginBottom: 30,
-    height: 10,
+    marginBottom: 28,
     alignItems: "center",
+    height: 10,
   },
   dot: { height: 8, borderRadius: 4 },
-  btnWrapper: { height: 120, justifyContent: "center" },
+  btnArea: { height: 130, justifyContent: "center" },
+
   btnMain: {
     width: width - 80,
     height: 60,
     borderRadius: 30,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#f472b6",
-    shadowRadius: 12,
-    shadowOpacity: 0.3,
   },
-  btnTextMain: { color: "#fff", fontSize: 18, fontWeight: "800" },
+  btnMainText: { color: "#fff", fontSize: 18, fontWeight: "800" },
   ctaGroup: { gap: 10 },
   btnSecondary: { paddingVertical: 10, alignItems: "center" },
-  btnTextSecondary: {
+  btnSecondaryText: {
     color: "rgba(255,255,255,0.4)",
     fontSize: 15,
     fontWeight: "600",
   },
+
+  msBox: {
+    width: "100%",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    padding: 20,
+    borderRadius: 24,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  msTodayRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  msTodayLabel: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.4)",
+    fontWeight: "800",
+  },
+  msBadge: {
+    backgroundColor: "rgba(244,114,182,0.18)",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+  },
+  msBadgeText: { fontSize: 10, color: "#f472b6", fontWeight: "800" },
+  msRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  msLock: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  msName: { fontSize: 14, color: "#fff", fontWeight: "600", marginBottom: 4 },
+  msTrack: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 3,
+    overflow: "hidden",
+  },
+  msFill: { height: "100%", backgroundColor: "#f472b6", borderRadius: 3 },
 });

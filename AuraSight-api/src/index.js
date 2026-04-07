@@ -227,11 +227,9 @@ app.post("/scans", async (req, res) => {
       req.body;
 
     if (!user_id || !scan_date || !body_zone) {
-      return res
-        .status(400)
-        .json({
-          error: "Missing required fields: user_id, scan_date, body_zone",
-        });
+      return res.status(400).json({
+        error: "Missing required fields: user_id, scan_date, body_zone",
+      });
     }
 
     const record = {
@@ -603,4 +601,154 @@ connectDB().then(() => {
   app.listen(PORT, () => {
     console.log(`🚀 AuraSight API running on port ${PORT}`);
   });
+});
+
+// ─── Weekly Insight 规则引擎 ─────────────────────────────
+// 根据本周 vs 上周的数据，生成一句有温度的个性化文字
+function generateInsightText(thisWeek, lastWeek, streak) {
+  const scansThisWeek = thisWeek.length;
+  const avgThisWeek =
+    thisWeek.length > 0
+      ? Math.round(
+          thisWeek.reduce((s, x) => s + x.skin_score, 0) / thisWeek.length,
+        )
+      : null;
+  const avgLastWeek =
+    lastWeek.length > 0
+      ? Math.round(
+          lastWeek.reduce((s, x) => s + x.skin_score, 0) / lastWeek.length,
+        )
+      : null;
+
+  // 没有数据时的鼓励
+  if (scansThisWeek === 0) {
+    return "This week hasn't started yet — your skin is waiting for its first check-in. Even one scan gives us something to work with.";
+  }
+
+  // 第一周用户
+  if (!avgLastWeek) {
+    if (avgThisWeek >= 90)
+      return `Strong start. Your skin is scoring ${avgThisWeek} this week — that's a great baseline to build on.`;
+    if (avgThisWeek >= 70)
+      return `Good first week. Your skin score is sitting at ${avgThisWeek} — let's see what daily check-ins can do for it.`;
+    return `First week in. Your score is ${avgThisWeek} — don't worry, the trend matters more than the number right now.`;
+  }
+
+  const scoreDiff = avgLastWeek ? avgThisWeek - avgLastWeek : 0;
+
+  // 分情况生成文字
+  if (scansThisWeek >= 6 && scoreDiff > 0) {
+    return `Your most consistent week yet — ${scansThisWeek}/7 days scanned, and your skin responded. Score up ${scoreDiff} points from last week.`;
+  }
+  if (scansThisWeek >= 6 && scoreDiff === 0) {
+    return `${scansThisWeek} days scanned this week. Your skin is holding steady — consistency is doing its job even when the numbers don't move.`;
+  }
+  if (scansThisWeek >= 4 && scoreDiff > 3) {
+    return `Great week. You showed up ${scansThisWeek} times and your skin score jumped ${scoreDiff} points. Something's working — keep it going.`;
+  }
+  if (scansThisWeek >= 4 && scoreDiff < -3) {
+    return `You scanned ${scansThisWeek} days this week, but your score dipped ${Math.abs(scoreDiff)} points. Stress, sleep, diet — worth checking in with your diary.`;
+  }
+  if (scansThisWeek <= 2 && scoreDiff > 0) {
+    return `Only ${scansThisWeek} scans this week, but your skin actually improved. Imagine what daily tracking could show.`;
+  }
+  if (scansThisWeek <= 2) {
+    return `Light week — just ${scansThisWeek} scans. Your skin misses you. Even a 30-second check-in adds up over 30 days.`;
+  }
+  if (scoreDiff > 5) {
+    return `This week your skin jumped ${scoreDiff} points. Whatever you did differently — it's working.`;
+  }
+  if (scoreDiff < -5) {
+    return `Score dropped ${Math.abs(scoreDiff)} points this week. It happens. Add a diary note to your next scan and we can start connecting the dots.`;
+  }
+
+  return `${scansThisWeek} scans this week, average score ${avgThisWeek}. You're building the data that makes 30-day insights possible.`;
+}
+
+// GET /insights/:userId/weekly — 周报告
+app.get("/insights/:userId/weekly", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const lastStart = new Date(weekStart);
+    lastStart.setDate(weekStart.getDate() - 7);
+
+    const [thisWeek, lastWeek] = await Promise.all([
+      db
+        .collection("scans")
+        .find({ user_id: userId, scan_date: { $gte: weekStart.toISOString() } })
+        .toArray(),
+      db
+        .collection("scans")
+        .find({
+          user_id: userId,
+          scan_date: {
+            $gte: lastStart.toISOString(),
+            $lt: weekStart.toISOString(),
+          },
+        })
+        .toArray(),
+    ]);
+
+    // 获取 streak
+    const pts = await db.collection("points").findOne({ user_id: userId });
+    const streak = pts?.streak ?? 0;
+
+    const avgThis =
+      thisWeek.length > 0
+        ? Math.round(
+            thisWeek.reduce((s, x) => s + (x.skin_score ?? 0), 0) /
+              thisWeek.length,
+          )
+        : null;
+    const avgLast =
+      lastWeek.length > 0
+        ? Math.round(
+            lastWeek.reduce((s, x) => s + (x.skin_score ?? 0), 0) /
+              lastWeek.length,
+          )
+        : null;
+
+    res.json({
+      scans_this_week: thisWeek.length,
+      avg_score_this_week: avgThis,
+      avg_score_last_week: avgLast,
+      score_change: avgThis && avgLast ? avgThis - avgLast : null,
+      streak,
+      insight_text: generateInsightText(thisWeek, lastWeek, streak),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /scans/:id/diary — 给扫描记录添加日记备注
+app.patch("/scans/:id/diary", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { note, tags } = req.body; // note: 文字备注, tags: ['sleep_bad', 'lots_of_water', ...]
+    const db = client.db(process.env.DB_NAME);
+    const { ObjectId } = require("mongodb");
+
+    await db
+      .collection("scans")
+      .updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            diary_note: note,
+            diary_tags: tags ?? [],
+            diary_updated_at: new Date().toISOString(),
+          },
+        },
+      );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });

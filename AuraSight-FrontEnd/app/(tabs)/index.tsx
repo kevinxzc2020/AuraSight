@@ -16,7 +16,16 @@ import Svg, {
   LinearGradient as SvgGradient,
   Stop,
 } from "react-native-svg";
-import { Flame, User, Trophy, CheckCircle, Star } from "lucide-react-native";
+import {
+  Flame,
+  User,
+  Trophy,
+  CheckCircle,
+  Star,
+  Sparkles,
+  TrendingUp,
+  TrendingDown,
+} from "lucide-react-native";
 import {
   Colors,
   Gradients,
@@ -98,7 +107,7 @@ function TaskRing({ todayPts }: { todayPts: number }) {
   );
 }
 
-// ─── 下一个里程碑进度条 ───────────────────────────────────
+// ─── 里程碑进度条 ─────────────────────────────────────────
 const MILESTONES = [
   { points: 100, label: "Trend Chart" },
   { points: 300, label: "Cause Report" },
@@ -138,6 +147,110 @@ function MilestoneBar({ total }: { total: number }) {
   );
 }
 
+// ─── Weekly Insight 卡片 ──────────────────────────────────
+// 这张卡片是留存的核心：每周给用户一个关于自己皮肤的个性化总结
+// 免费版显示基础数据，VIP 入口自然嵌入在右下角
+interface InsightData {
+  scans_this_week: number;
+  avg_score_this_week: number | null;
+  avg_score_last_week: number | null;
+  score_change: number | null;
+  insight_text: string;
+}
+
+function WeeklyInsightCard({ insight }: { insight: InsightData | null }) {
+  if (!insight) return null;
+
+  const hasImproved = (insight.score_change ?? 0) > 0;
+  const hasDeclined = (insight.score_change ?? 0) < 0;
+
+  return (
+    <View style={styles.insightCard}>
+      {/* 深色背景让这张卡在整个浅色页面里跳出来，成为视觉焦点 */}
+      <LinearGradient
+        colors={["#1a0a14", "#2d1021"]}
+        style={styles.insightInner}
+      >
+        {/* 顶部：标题 + 日期 */}
+        <View style={styles.insightTop}>
+          <View style={styles.insightTitleRow}>
+            <View style={styles.insightIconBg}>
+              <Sparkles size={14} color="#f472b6" />
+            </View>
+            <View>
+              <Text style={styles.insightTitle}>Weekly Insight</Text>
+              <Text style={styles.insightSub}>Your skin this week</Text>
+            </View>
+          </View>
+          {insight.scans_this_week > 0 && (
+            <View style={styles.insightScanBadge}>
+              <Text style={styles.insightScanBadgeText}>
+                {insight.scans_this_week}/7 days
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {/* 主文字：这是情绪价值的核心，有温度、个性化 */}
+        <Text style={styles.insightBody}>{insight.insight_text}</Text>
+
+        {/* 三个关键数据 */}
+        {insight.avg_score_this_week !== null && (
+          <View style={styles.insightStats}>
+            <View style={styles.insightStat}>
+              <Text style={styles.insightStatVal}>
+                {insight.avg_score_this_week}
+              </Text>
+              <Text style={styles.insightStatLbl}>Avg score</Text>
+            </View>
+            {insight.score_change !== null && (
+              <View style={styles.insightStat}>
+                <View style={styles.insightChangeRow}>
+                  {hasImproved ? (
+                    <TrendingUp size={14} color="#34d399" />
+                  ) : hasDeclined ? (
+                    <TrendingDown size={14} color="#f87171" />
+                  ) : null}
+                  <Text
+                    style={[
+                      styles.insightStatVal,
+                      hasImproved
+                        ? { color: "#34d399" }
+                        : hasDeclined
+                          ? { color: "#f87171" }
+                          : {},
+                    ]}
+                  >
+                    {insight.score_change > 0 ? "+" : ""}
+                    {insight.score_change}
+                  </Text>
+                </View>
+                <Text style={styles.insightStatLbl}>vs last week</Text>
+              </View>
+            )}
+            <View style={styles.insightStat}>
+              <Text style={styles.insightStatVal}>
+                {insight.scans_this_week}
+              </Text>
+              <Text style={styles.insightStatLbl}>Scans</Text>
+            </View>
+          </View>
+        )}
+
+        {/* 底部：免费标签 + VIP 升级入口 */}
+        <View style={styles.insightFooter}>
+          <View style={styles.insightFreeBadge}>
+            <Text style={styles.insightFreeBadgeText}>✓ Free insight</Text>
+          </View>
+          <TouchableOpacity onPress={() => router.push("/(tabs)/report")}>
+            <Text style={styles.insightVipCta}>Full report → VIP ✦</Text>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
+    </View>
+  );
+}
+
 // ─── 主页面 ───────────────────────────────────────────────
 export default function HomeScreen() {
   const [stats, setStats] = useState<StatsResult | null>(null);
@@ -151,6 +264,7 @@ export default function HomeScreen() {
   const [yesterdayFace, setYesterdayFace] = useState<string | null>(null);
   const [yesterdayBody, setYesterdayBody] = useState<string | null>(null);
   const [allDone, setAllDone] = useState(false);
+  const [insight, setInsight] = useState<InsightData | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -166,16 +280,21 @@ export default function HomeScreen() {
       setUserName(name ?? "");
       setIsGuest(mode !== "registered");
 
-      const [statsData, ptsRes, scansRes] = await Promise.all([
+      const [statsData, ptsRes, scansRes, insightRes] = await Promise.all([
         getStats(id),
         fetch(`${API_URL}/points/${id}`).then((r) => r.json()),
         fetch(`${API_URL}/scans/${id}?days=2`).then((r) => r.json()),
+        // Weekly Insight 单独请求，失败了不影响其他数据
+        fetch(`${API_URL}/insights/${id}/weekly`)
+          .then((r) => r.json())
+          .catch(() => null),
       ]);
 
       setStats(statsData);
       setTotalPts(ptsRes.total_points ?? 0);
       setTodayPts(ptsRes.today_pts ?? 0);
       setStreak(ptsRes.streak ?? 0);
+      setInsight(insightRes);
 
       const faceDoneVal = ptsRes.tasks_today?.face ?? false;
       const bodyDoneVal = ptsRes.tasks_today?.body ?? false;
@@ -183,21 +302,22 @@ export default function HomeScreen() {
       setBodyDone(bodyDoneVal);
       setAllDone(faceDoneVal && bodyDoneVal);
 
+      // 找昨日扫描缩略图
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayStr = yesterday.toISOString().split("T")[0];
-      const yesterdayScans = (scansRes as any[]).filter(
+      const yScans = (scansRes as any[]).filter(
         (s) =>
           new Date(s.scan_date).toISOString().split("T")[0] === yesterdayStr,
       );
-      const yFace = yesterdayScans.find(
-        (s) => !["back", "chest"].includes(s.body_zone),
+      setYesterdayFace(
+        yScans.find((s) => !["back", "chest"].includes(s.body_zone))
+          ?.image_uri ?? null,
       );
-      const yBody = yesterdayScans.find((s) =>
-        ["back", "chest"].includes(s.body_zone),
+      setYesterdayBody(
+        yScans.find((s) => ["back", "chest"].includes(s.body_zone))
+          ?.image_uri ?? null,
       );
-      setYesterdayFace(yFace?.image_uri ?? null);
-      setYesterdayBody(yBody?.image_uri ?? null);
     } catch (err) {
       console.error("Failed to load:", err);
     }
@@ -286,16 +406,16 @@ export default function HomeScreen() {
                 style={styles.allDoneBanner}
               >
                 <Text style={styles.allDoneText}>
-                  🎉 All tasks done for today!
+                  🎉 All done for today — come back tomorrow!
                 </Text>
               </LinearGradient>
             )}
           </View>
 
-          {/* 今日任务 */}
+          {/* 今日任务 — 文案改成有温度的语言，降低"任务感" */}
           <View style={[styles.card, Shadow.card]}>
             <View style={styles.taskHeader}>
-              <Text style={styles.sectionTitle}>Daily Tasks</Text>
+              <Text style={styles.sectionTitle}>Daily Check-in</Text>
               <Text style={styles.taskHeaderPts}>{todayPts}/100 pts today</Text>
             </View>
 
@@ -314,13 +434,14 @@ export default function HomeScreen() {
                 </LinearGradient>
               )}
               <View style={styles.taskInfo}>
+                {/* 文案改动：从"任务"变成"关心自己" */}
                 <Text
                   style={[styles.taskLabel, faceDone && styles.taskLabelDone]}
                 >
-                  Scan your face
+                  {faceDone ? "Face checked in ✓" : "How's your skin today?"}
                 </Text>
                 <Text style={styles.taskPts}>
-                  +50 pts{yesterdayFace ? " · yesterday ✓" : ""}
+                  +50 pts · 30-second face scan
                 </Text>
               </View>
               {faceDone ? (
@@ -331,7 +452,7 @@ export default function HomeScreen() {
                     colors={Gradients.roseMain}
                     style={styles.taskBtn}
                   >
-                    <Text style={styles.taskBtnText}>Go</Text>
+                    <Text style={styles.taskBtnText}>Scan</Text>
                   </LinearGradient>
                 </TouchableOpacity>
               )}
@@ -357,10 +478,10 @@ export default function HomeScreen() {
                 <Text
                   style={[styles.taskLabel, bodyDone && styles.taskLabelDone]}
                 >
-                  Scan your body
+                  {bodyDone ? "Body checked in ✓" : "Quick body check-in"}
                 </Text>
                 <Text style={styles.taskPts}>
-                  +50 pts{yesterdayBody ? " · yesterday ✓" : ""}
+                  +50 pts · tracks shape & progress
                 </Text>
               </View>
               {bodyDone ? (
@@ -371,12 +492,15 @@ export default function HomeScreen() {
                     colors={Gradients.roseMain}
                     style={styles.taskBtn}
                   >
-                    <Text style={styles.taskBtnText}>Go</Text>
+                    <Text style={styles.taskBtnText}>Scan</Text>
                   </LinearGradient>
                 </TouchableOpacity>
               )}
             </View>
           </View>
+
+          {/* Weekly Insight 卡片 — 留存的核心功能 */}
+          <WeeklyInsightCard insight={insight} />
 
           {/* 皮肤数据 */}
           <View style={styles.statsRow}>
@@ -428,13 +552,14 @@ export default function HomeScreen() {
               <View style={styles.aiPlaceholderText}>
                 <Text style={styles.aiPlaceholderTitle}>AI Skin Analysis</Text>
                 <Text style={styles.aiPlaceholderSub}>
-                  Complete {Math.max(0, 7 - (stats?.total_scans ?? 0))} more
-                  scans to unlock acne detection
+                  {Math.max(0, 7 - (stats?.total_scans ?? 0))} more scans to
+                  unlock acne detection
                 </Text>
               </View>
             </LinearGradient>
           )}
 
+          {/* 游客注册提示 */}
           {isGuest && (
             <TouchableOpacity
               onPress={() => router.push("/(tabs)/profile")}
@@ -463,6 +588,7 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -499,6 +625,7 @@ const styles = StyleSheet.create({
     color: Colors.rose400,
     fontWeight: "600",
   },
+
   ptsCard: {
     backgroundColor: Colors.white,
     borderRadius: Radius.xxl,
@@ -537,6 +664,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textAlign: "right",
   },
+
   ringWrapper: { alignItems: "center", marginBottom: Spacing.lg },
   ringContainer: {
     position: "relative",
@@ -558,6 +686,7 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   allDoneText: { fontSize: FontSize.sm, color: "#fff", fontWeight: "600" },
+
   card: {
     backgroundColor: Colors.white,
     borderRadius: Radius.xxl,
@@ -598,12 +727,7 @@ const styles = StyleSheet.create({
     color: Colors.gray800,
   },
   taskLabelDone: { textDecorationLine: "line-through", color: Colors.gray400 },
-  taskPts: {
-    fontSize: FontSize.xs,
-    color: Colors.rose400,
-    fontWeight: "600",
-    marginTop: 2,
-  },
+  taskPts: { fontSize: FontSize.xs, color: Colors.gray400, marginTop: 2 },
   taskBtn: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -615,6 +739,81 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gray100,
     marginVertical: Spacing.xs,
   },
+
+  // Weekly Insight 卡片样式 — 深色背景让它在页面里成为视觉锚点
+  insightCard: {
+    marginBottom: Spacing.lg,
+    borderRadius: Radius.xxl,
+    overflow: "hidden",
+  },
+  insightInner: { padding: Spacing.lg },
+  insightTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: Spacing.md,
+  },
+  insightTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  insightIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.md,
+    backgroundColor: "rgba(244,114,182,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  insightTitle: { fontSize: FontSize.sm, fontWeight: "700", color: "#fff" },
+  insightSub: { fontSize: 10, color: "rgba(255,255,255,0.4)", marginTop: 1 },
+  insightScanBadge: {
+    backgroundColor: "rgba(244,114,182,0.2)",
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  insightScanBadgeText: { fontSize: 11, color: "#f472b6", fontWeight: "700" },
+  insightBody: {
+    fontSize: FontSize.sm,
+    color: "rgba(255,255,255,0.75)",
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  insightStats: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  insightStat: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    alignItems: "center",
+  },
+  insightChangeRow: { flexDirection: "row", alignItems: "center", gap: 3 },
+  insightStatVal: { fontSize: FontSize.base, fontWeight: "800", color: "#fff" },
+  insightStatLbl: { fontSize: 9, color: "rgba(255,255,255,0.4)", marginTop: 2 },
+  insightFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  insightFreeBadge: {
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderRadius: Radius.full,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  insightFreeBadgeText: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.4)",
+    fontWeight: "600",
+  },
+  insightVipCta: { fontSize: 11, color: "#c084fc", fontWeight: "700" },
+
   statsRow: { flexDirection: "row", gap: Spacing.md, marginBottom: Spacing.lg },
   statCard: {
     flex: 1,
@@ -629,6 +828,7 @@ const styles = StyleSheet.create({
     color: Colors.gray800,
   },
   statLabel: { fontSize: 10, color: Colors.gray500, marginTop: 2 },
+
   acneGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -660,6 +860,7 @@ const styles = StyleSheet.create({
     color: Colors.gray700,
     fontWeight: "500",
   },
+
   aiPlaceholder: {
     flexDirection: "row",
     alignItems: "center",
@@ -681,6 +882,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
     lineHeight: 16,
   },
+
   guestBanner: {
     flexDirection: "row",
     alignItems: "center",
