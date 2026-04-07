@@ -582,7 +582,7 @@ function VIPUpgradeSection({
         <Lock size={16} color="rgba(255,255,255,0.4)" />
         <Text style={st.vipPreviewTitle}>Deep Analysis</Text>
         <Text style={st.vipPreviewSub}>
-          Unlock AI-powered insights about what's driving your skin changes
+          Unlock AI-powered insights about what&apos;s driving your skin changes
         </Text>
       </LinearGradient>
 
