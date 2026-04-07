@@ -20,6 +20,7 @@ import {
   LogOut,
   ChevronRight,
   Crown,
+  Settings,
 } from "lucide-react-native";
 import {
   Colors,
@@ -167,6 +168,16 @@ export default function ProfileScreen() {
     return (
       <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
         <SafeAreaView style={styles.safeArea}>
+          {/* 顶部标题 + 设置齿轮入口 */}
+          <View style={styles.topNav}>
+            <Text style={styles.topNavTitle}>Profile</Text>
+            <TouchableOpacity
+              onPress={() => router.push("/settings")}
+              style={styles.settingsBtn}
+            >
+              <Settings size={22} color={Colors.gray500} />
+            </TouchableOpacity>
+          </View>
           <ScrollView contentContainerStyle={styles.scrollContent}>
             {/* 头像 + 名字 */}
             <View style={styles.avatarSection}>
@@ -499,5 +510,24 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.gray400,
     lineHeight: 18,
+  },
+  topNav: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xs,
+  },
+  topNavTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

@@ -12,12 +12,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import {
-  ChevronLeft,
-  ChevronRight,
-  TrendingUp,
-  TrendingDown,
-} from "lucide-react-native";
+import Svg, { Polyline, Circle, Line, Text as SvgText } from "react-native-svg";
+import { ChevronLeft, ChevronRight, Flame, Camera } from "lucide-react-native";
 import {
   Colors,
   Gradients,
@@ -34,12 +30,11 @@ import {
   StatsResult,
 } from "../../lib/mongodb";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SwipeableScanCard } from "../../components/SwipeableScanCard";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
-const BAR_H = 56;
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 async function getUserId(): Promise<string> {
@@ -51,14 +46,250 @@ async function getUserId(): Promise<string> {
   return id;
 }
 
-function getMonthStartDay(year: number, month: number) {
-  return new Date(year, month, 1).getDay();
+// ─── 折线图组件 ───────────────────────────────────────────
+// 用皮肤分数（而不是扫描次数）画趋势折线，更能体现"是否在变好"
+// 只显示有数据的点，没有扫描的天用虚线连接
+function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
+  const chartW = width - Spacing.xl * 2 - Spacing.lg * 2;
+  const chartH = 80;
+
+  if (scans.length === 0) {
+    return (
+      <View
+        style={{
+          height: chartH + 24,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Text style={st.emptyChartText}>
+          Scan daily to see your score trend
+        </Text>
+      </View>
+    );
+  }
+
+  // 按日期排序，取最近14天有数据的扫描记录（不是每天都有，所以不填0）
+  const sorted = [...scans]
+    .sort(
+      (a, b) =>
+        new Date(a.scan_date).getTime() - new Date(b.scan_date).getTime(),
+    )
+    .slice(-14);
+
+  const scores = sorted.map((s) => s.skin_score ?? 100);
+  const minScore = Math.max(0, Math.min(...scores) - 10);
+  const maxScore = Math.min(100, Math.max(...scores) + 10);
+  const range = maxScore - minScore || 20;
+
+  // 将分数映射到 Y 坐标（上小下大，所以要翻转）
+  const toY = (score: number) => chartH - ((score - minScore) / range) * chartH;
+
+  // 将索引映射到 X 坐标
+  const toX = (i: number) =>
+    sorted.length === 1 ? chartW / 2 : (i / (sorted.length - 1)) * chartW;
+
+  // 构建折线的点集合（SVG Polyline 格式）
+  const points = sorted
+    .map(
+      (s, i) => `${toX(i).toFixed(1)},${toY(s.skin_score ?? 100).toFixed(1)}`,
+    )
+    .join(" ");
+
+  // 最后一个点（用于高亮显示当前分数）
+  const lastX = toX(sorted.length - 1);
+  const lastY = toY(sorted[sorted.length - 1].skin_score ?? 100);
+  const lastScore = sorted[sorted.length - 1].skin_score ?? 100;
+
+  // 判断整体趋势：最后3个点的均值 vs 最前3个点的均值
+  const firstAvg =
+    scores.slice(0, 3).reduce((a, b) => a + b, 0) / Math.min(3, scores.length);
+  const lastAvg =
+    scores.slice(-3).reduce((a, b) => a + b, 0) / Math.min(3, scores.length);
+  const improving = lastAvg >= firstAvg;
+
+  const lineColor = improving ? Colors.emerald : Colors.rose400;
+
+  return (
+    <View>
+      {/* 趋势说明行 */}
+      <View style={st.chartHeader}>
+        <Text style={st.chartLabel}>Skin Score Trend</Text>
+        <View
+          style={[
+            st.trendBadge,
+            { backgroundColor: improving ? "#ecfdf5" : "#fff0f6" },
+          ]}
+        >
+          <Text
+            style={[
+              st.trendBadgeText,
+              { color: improving ? Colors.emerald : Colors.rose400 },
+            ]}
+          >
+            {improving ? "↗ Improving" : "↘ Declining"}
+          </Text>
+        </View>
+      </View>
+
+      {/* SVG 折线图 */}
+      <Svg width={chartW} height={chartH + 24}>
+        {/* Y 轴参考线（淡灰色水平线） */}
+        {[0, 0.5, 1].map((ratio, i) => {
+          const y = chartH * ratio;
+          const score = Math.round(maxScore - ratio * range);
+          return (
+            <React.Fragment key={i}>
+              <Line
+                x1={0}
+                y1={y}
+                x2={chartW}
+                y2={y}
+                stroke={Colors.gray100}
+                strokeWidth={1}
+                strokeDasharray="3 3"
+              />
+              <SvgText
+                x={chartW}
+                y={y - 2}
+                textAnchor="end"
+                fontSize={9}
+                fill={Colors.gray300}
+              >
+                {score}
+              </SvgText>
+            </React.Fragment>
+          );
+        })}
+
+        {/* 折线本身 */}
+        <Polyline
+          points={points}
+          fill="none"
+          stroke={lineColor}
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {/* 每个数据点的圆点 */}
+        {sorted.map((s, i) => (
+          <Circle
+            key={i}
+            cx={toX(i)}
+            cy={toY(s.skin_score ?? 100)}
+            r={i === sorted.length - 1 ? 5 : 3}
+            fill={i === sorted.length - 1 ? lineColor : "#fff"}
+            stroke={lineColor}
+            strokeWidth={2}
+          />
+        ))}
+
+        {/* 最后一个点的分数标注 */}
+        <SvgText
+          x={Math.min(lastX + 6, chartW - 20)}
+          y={lastY - 8}
+          fontSize={11}
+          fontWeight="700"
+          fill={lineColor}
+          textAnchor="middle"
+        >
+          {lastScore}
+        </SvgText>
+      </Svg>
+
+      <Text style={st.chartSubLabel}>Last {sorted.length} scans</Text>
+    </View>
+  );
 }
 
-function getDaysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate();
+// ─── 月度总览 Hero 卡片 ───────────────────────────────────
+// 这是页面最顶部的核心数据展示区
+// 让用户一眼就看到本月的成就感：扫描了多少天、平均分、最长连续天数
+function MonthHero({
+  scans,
+  stats,
+  currentYear,
+  currentMonth,
+}: {
+  scans: ScanRecord[];
+  stats: StatsResult | null;
+  currentYear: number;
+  currentMonth: number;
+}) {
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+  // 计算本月扫描天数（去重，同一天多次只算一天）
+  const scannedDaysThisMonth = new Set(
+    scans
+      .filter((s) => {
+        const d = new Date(s.scan_date);
+        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+      })
+      .map((s) => new Date(s.scan_date).toISOString().split("T")[0]),
+  ).size;
+
+  // 本月平均分
+  const monthScans = scans.filter((s) => {
+    const d = new Date(s.scan_date);
+    return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
+  });
+  const avgScore =
+    monthScans.length > 0
+      ? Math.round(
+          monthScans.reduce((sum, s) => sum + (s.skin_score ?? 100), 0) /
+            monthScans.length,
+        )
+      : null;
+
+  const monthPct = Math.round((scannedDaysThisMonth / daysInMonth) * 100);
+
+  return (
+    <LinearGradient colors={["#1a0a14", "#0d0d1a"]} style={st.hero}>
+      {/* 本月进度环 + 天数 */}
+      <View style={st.heroLeft}>
+        <View style={st.heroRingWrapper}>
+          {/* 背景环 */}
+          <View style={st.heroRingBg} />
+          {/* 前景弧（用简单的渐变矩形模拟，真实实现需要 SVG arc） */}
+          <View style={st.heroRingCenter}>
+            <Text style={st.heroRingNum}>{scannedDaysThisMonth}</Text>
+            <Text style={st.heroRingLabel}>/ {daysInMonth} days</Text>
+          </View>
+        </View>
+        <Text style={st.heroRingDesc}>
+          {monthPct >= 80
+            ? "🔥 Incredible!"
+            : monthPct >= 50
+              ? "💪 Great work!"
+              : monthPct >= 20
+                ? "📸 Keep going!"
+                : "✨ Just started"}
+        </Text>
+      </View>
+
+      {/* 右侧统计数字 */}
+      <View style={st.heroRight}>
+        <View style={st.heroStat}>
+          <Text style={st.heroStatVal}>{avgScore ?? "—"}</Text>
+          <Text style={st.heroStatLabel}>Avg score</Text>
+        </View>
+        <View style={st.heroStatDivider} />
+        <View style={st.heroStat}>
+          <Text style={st.heroStatVal}>{stats?.total_scans ?? 0}</Text>
+          <Text style={st.heroStatLabel}>Total scans</Text>
+        </View>
+        <View style={st.heroStatDivider} />
+        <View style={st.heroStat}>
+          <Text style={st.heroStatVal}>{stats?.streak ?? 0}</Text>
+          <Text style={st.heroStatLabel}>Day streak</Text>
+        </View>
+      </View>
+    </LinearGradient>
+  );
 }
 
+// ─── 主页面 ───────────────────────────────────────────────
 export default function HistoryScreen() {
   const [activeFilter, setActiveFilter] = useState("All");
   const [scans, setScans] = useState<ScanRecord[]>([]);
@@ -68,8 +299,6 @@ export default function HistoryScreen() {
   const now = new Date();
   const [currentYear, setCurrentYear] = useState(now.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(now.getMonth());
-
-  const filters = ["Face", "Body", "All"];
 
   useFocusEffect(
     useCallback(() => {
@@ -82,7 +311,7 @@ export default function HistoryScreen() {
       setLoading(true);
       const userId = await getUserId();
       const [scanData, statsData] = await Promise.all([
-        getRecentScans(userId, 30),
+        getRecentScans(userId, 60), // 多取一些，用于折线图
         getStats(userId),
       ]);
       setScans(scanData);
@@ -103,18 +332,24 @@ export default function HistoryScreen() {
     }
   }
 
-  // 日历数据
+  // 日历数据：建立"日期字符串 → 扫描记录"的映射
   const scanMap = scans.reduce(
     (acc, scan) => {
       const date = new Date(scan.scan_date).toISOString().split("T")[0];
-      if (!acc[date]) acc[date] = scan;
+      // 同一天有多次扫描时，保留分数最低的（最差状态，更有参考价值）
+      if (
+        !acc[date] ||
+        (scan.skin_score ?? 100) < (acc[date].skin_score ?? 100)
+      ) {
+        acc[date] = scan;
+      }
       return acc;
     },
     {} as Record<string, ScanRecord>,
   );
 
-  const startDay = getMonthStartDay(currentYear, currentMonth);
-  const daysInMonth = getDaysInMonth(currentYear, currentMonth);
+  const startDay = new Date(currentYear, currentMonth, 1).getDay();
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const monthName = new Date(currentYear, currentMonth).toLocaleString(
     "default",
     { month: "long" },
@@ -134,48 +369,47 @@ export default function HistoryScreen() {
     } else setCurrentMonth((m) => m + 1);
   }
 
-  // 趋势图：最近30天每天扫描次数
-  const days30 = Array.from({ length: 30 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (29 - i));
-    const key = d.toISOString().split("T")[0];
-    return scans.filter(
-      (s) => new Date(s.scan_date).toISOString().split("T")[0] === key,
-    ).length;
-  });
-  const maxDay = Math.max(...days30, 1);
-
-  // 最近扫描记录
-  const recentScans = [...scans]
+  // 根据筛选条件过滤扫描记录
+  const filteredScans = [...scans]
+    .filter((s) => {
+      if (activeFilter === "Face")
+        return !["back", "chest"].includes(s.body_zone);
+      if (activeFilter === "Body")
+        return ["back", "chest"].includes(s.body_zone);
+      return true;
+    })
     .sort(
       (a, b) =>
         new Date(b.scan_date).getTime() - new Date(a.scan_date).getTime(),
     )
-    .slice(0, 10);
+    .slice(0, 15);
 
   if (loading) {
     return (
       <LinearGradient
         colors={["#fff5f5", "#ffffff"]}
-        style={styles.loadingContainer}
+        style={st.loadingContainer}
       >
         <ActivityIndicator size="large" color={Colors.rose400} />
       </LinearGradient>
     );
   }
 
+  const cellW = (width - Spacing.xl * 2 - Spacing.lg * 2) / 7;
+
   return (
-    <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+    <LinearGradient colors={["#fff5f5", "#ffffff"]} style={st.container}>
+      <SafeAreaView style={st.safeArea}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={st.scroll}
         >
-          {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.title}>History</Text>
-            <View style={styles.filterPill}>
-              {filters.map((f) => (
+          {/* ── 标题行 ── */}
+          <View style={st.titleRow}>
+            <Text style={st.pageTitle}>History</Text>
+            {/* 筛选胶囊 */}
+            <View style={st.filterPill}>
+              {["Face", "Body", "All"].map((f) => (
                 <TouchableOpacity
                   key={f}
                   onPress={() => setActiveFilter(f)}
@@ -186,13 +420,13 @@ export default function HistoryScreen() {
                       colors={Gradients.roseMain}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
-                      style={styles.filterActive}
+                      style={st.filterOn}
                     >
-                      <Text style={styles.filterActiveText}>{f}</Text>
+                      <Text style={st.filterOnText}>{f}</Text>
                     </LinearGradient>
                   ) : (
-                    <View style={styles.filterInactive}>
-                      <Text style={styles.filterInactiveText}>{f}</Text>
+                    <View style={st.filterOff}>
+                      <Text style={st.filterOffText}>{f}</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -200,155 +434,175 @@ export default function HistoryScreen() {
             </View>
           </View>
 
-          {/* Calendar */}
-          <View style={[styles.card, Shadow.card]}>
-            <View style={styles.monthNav}>
-              <TouchableOpacity style={styles.navBtn} onPress={prevMonth}>
-                <ChevronLeft size={20} color={Colors.gray400} />
+          {/* ── 月度成就 Hero ── */}
+          <MonthHero
+            scans={scans}
+            stats={stats}
+            currentYear={currentYear}
+            currentMonth={currentMonth}
+          />
+
+          {/* ── 日历卡片 ── */}
+          <View style={[st.card, Shadow.card]}>
+            {/* 月份导航 */}
+            <View style={st.monthNav}>
+              <TouchableOpacity onPress={prevMonth} style={st.navBtn}>
+                <ChevronLeft size={18} color={Colors.gray400} />
               </TouchableOpacity>
-              <Text style={styles.monthText}>
+              <Text style={st.monthText}>
                 {monthName} {currentYear}
               </Text>
-              <TouchableOpacity style={styles.navBtn} onPress={nextMonth}>
-                <ChevronRight size={20} color={Colors.gray400} />
+              <TouchableOpacity onPress={nextMonth} style={st.navBtn}>
+                <ChevronRight size={18} color={Colors.gray400} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.weekRow}>
+            {/* 星期标题行 */}
+            <View style={st.weekRow}>
               {WEEKDAYS.map((d, i) => (
-                <Text key={i} style={styles.weekDay}>
+                <Text key={i} style={[st.weekDay, { width: cellW }]}>
                   {d}
                 </Text>
               ))}
             </View>
 
-            <View style={styles.calendarGrid}>
+            {/* 日历格子 — 核心升级：有扫描的天显示分数数字而不是小圆点 */}
+            <View style={st.calendarGrid}>
               {Array.from({ length: startDay }).map((_, i) => (
-                <View key={`empty-${i}`} style={styles.dayCell} />
+                <View
+                  key={`empty-${i}`}
+                  style={[st.dayCell, { width: cellW }]}
+                />
               ))}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day = i + 1;
                 const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                 const scan = scanMap[dateStr];
                 const isToday = dateStr === now.toISOString().split("T")[0];
+                const score = scan?.skin_score;
+
+                // 根据皮肤分数决定颜色：90+绿，70-89黄，70以下红
+                const scoreColor =
+                  score == null
+                    ? null
+                    : score >= 90
+                      ? Colors.emerald
+                      : score >= 70
+                        ? "#f59e0b"
+                        : Colors.rose400;
 
                 return (
-                  <View key={day} style={styles.dayCell}>
+                  <TouchableOpacity
+                    key={day}
+                    style={[st.dayCell, { width: cellW }]}
+                    onPress={() =>
+                      scan && router.push(`/scan/${scan._id}` as any)
+                    }
+                    activeOpacity={scan ? 0.7 : 1}
+                    disabled={!scan}
+                  >
+                    {/* 日期数字 */}
                     <View
                       style={[
-                        styles.dayNumWrapper,
-                        isToday && styles.todayWrapper,
+                        st.dayNumWrapper,
+                        isToday && st.todayWrapper,
+                        scan &&
+                          !isToday && {
+                            backgroundColor: (scoreColor ?? "#888888") + "20",
+                          },
                       ]}
                     >
-                      <Text style={[styles.dayNum, isToday && styles.todayNum]}>
+                      <Text
+                        style={[
+                          st.dayNum,
+                          isToday && st.todayNum,
+                          scan &&
+                            !isToday && {
+                              color: scoreColor ?? undefined,
+                              fontWeight: "700",
+                            },
+                        ]}
+                      >
                         {day}
                       </Text>
                     </View>
-                    {scan && (
+
+                    {/* 有扫描时：显示分数（而不是小圆点） */}
+                    {scan && score != null && (
+                      <Text
+                        style={[
+                          st.dayScore,
+                          { color: scoreColor ?? undefined },
+                        ]}
+                      >
+                        {score}
+                      </Text>
+                    )}
+                    {/* 有扫描但没有分数时：显示小圆点作为后备 */}
+                    {scan && score == null && (
                       <View
                         style={[
-                          styles.statusDot,
+                          st.statusDot,
                           { backgroundColor: StatusColors[scan.skin_status] },
                         ]}
                       />
                     )}
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
 
-            <View style={styles.legend}>
-              {[
-                { label: "Clear", color: StatusColors.clear },
-                { label: "Mild", color: StatusColors.mild },
-                { label: "Breakout", color: StatusColors.breakout },
-              ].map((l) => (
-                <View key={l.label} style={styles.legendItem}>
-                  <View
-                    style={[styles.legendDot, { backgroundColor: l.color }]}
-                  />
-                  <Text style={styles.legendText}>{l.label}</Text>
-                </View>
-              ))}
+            {/* 图例：保留原来的颜色说明，但精简 */}
+            <View style={st.legend}>
+              <View style={st.legendItem}>
+                <View
+                  style={[st.legendDot, { backgroundColor: Colors.emerald }]}
+                />
+                <Text style={st.legendText}>90+</Text>
+              </View>
+              <View style={st.legendItem}>
+                <View style={[st.legendDot, { backgroundColor: "#f59e0b" }]} />
+                <Text style={st.legendText}>70–89</Text>
+              </View>
+              <View style={st.legendItem}>
+                <View
+                  style={[st.legendDot, { backgroundColor: Colors.rose400 }]}
+                />
+                <Text style={st.legendText}>{"<70"}</Text>
+              </View>
+              <Text style={st.legendHint}>Tap a day to view scan</Text>
             </View>
           </View>
 
-          {/* 30天趋势图 */}
-          <View style={[styles.card, Shadow.card]}>
-            <View style={styles.trendHeader}>
-              <Text style={styles.sectionLabel}>30-Day Trend</Text>
-              <View style={styles.trendBadge}>
-                {(stats?.week_change ?? 0) <= 0 ? (
-                  <TrendingDown size={14} color={Colors.emerald} />
-                ) : (
-                  <TrendingUp size={14} color={Colors.red} />
-                )}
-                <Text
-                  style={[
-                    styles.trendValue,
-                    {
-                      color:
-                        (stats?.week_change ?? 0) <= 0
-                          ? Colors.emerald
-                          : Colors.red,
-                    },
-                  ]}
-                >
-                  {stats?.total_scans ?? 0} scans
-                </Text>
-              </View>
-            </View>
-
-            {scans.length === 0 ? (
-              <View style={styles.sparklineEmpty}>
-                <Text style={styles.sparklineEmptyText}>
-                  Scan daily to see your 30-day trend
-                </Text>
-              </View>
-            ) : (
-              <View style={styles.sparkline}>
-                {days30.map((v, i) =>
-                  v > 0 ? (
-                    <LinearGradient
-                      key={i}
-                      colors={Gradients.roseMain}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0, y: 1 }}
-                      style={[
-                        styles.sparkBar,
-                        { height: Math.max((v / maxDay) * BAR_H, 6) },
-                      ]}
-                    />
-                  ) : (
-                    <View
-                      key={i}
-                      style={[
-                        styles.sparkBar,
-                        { height: 4, backgroundColor: Colors.gray100 },
-                      ]}
-                    />
-                  ),
-                )}
-              </View>
-            )}
+          {/* ── 皮肤分数折线图 ── */}
+          <View style={[st.card, Shadow.card]}>
+            <SkinScoreLineChart scans={scans} />
           </View>
 
-          {/* Recent Scans */}
-          <Text style={[styles.sectionLabel, { marginBottom: Spacing.sm }]}>
-            Recent Scans
-          </Text>
+          {/* ── 最近扫描记录 ── */}
+          <Text style={st.sectionTitle}>Recent Scans</Text>
 
-          {recentScans.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>📷</Text>
-              <Text style={styles.emptyText}>No scans yet</Text>
-              <Text style={styles.emptySubtext}>
+          {filteredScans.length === 0 ? (
+            <View style={st.emptyState}>
+              <View style={st.emptyIconWrapper}>
+                <Camera size={28} color={Colors.rose200} />
+              </View>
+              <Text style={st.emptyText}>No scans yet</Text>
+              <Text style={st.emptySub}>
                 Take your first scan to start tracking!
               </Text>
+              <TouchableOpacity
+                onPress={() => router.push("/(tabs)/camera")}
+                activeOpacity={0.85}
+              >
+                <LinearGradient colors={Gradients.roseMain} style={st.emptyBtn}>
+                  <Text style={st.emptyBtnText}>Take a scan now</Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           ) : (
-            <View style={styles.recentList}>
-              {recentScans.map((scan, i) => (
+            <View style={st.recentList}>
+              {filteredScans.map((scan, i) => (
                 <SwipeableScanCard
                   key={scan._id ?? `scan-${i}`}
                   scan={scan}
@@ -363,126 +617,230 @@ export default function HistoryScreen() {
   );
 }
 
-const cellSize = (width - Spacing.xl * 2 - Spacing.xxl * 2) / 7;
-
-const styles = StyleSheet.create({
+// ─── 样式 ──────────────────────────────────────────────────
+const st = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
-  scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
+  scroll: { paddingBottom: Spacing.xxl },
 
-  header: {
+  // 标题行
+  titleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.md,
   },
-  title: { fontSize: FontSize.xl, fontWeight: "600", color: Colors.gray800 },
+  pageTitle: { fontSize: 28, fontWeight: "800", color: Colors.gray800 },
   filterPill: {
     flexDirection: "row",
     backgroundColor: "#fff0f6",
     borderRadius: Radius.full,
-    padding: 4,
+    padding: 3,
   },
-  filterActive: {
+  filterOn: {
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: Radius.full,
   },
-  filterActiveText: { color: "#fff", fontSize: FontSize.xs, fontWeight: "500" },
-  filterInactive: { paddingHorizontal: 12, paddingVertical: 4 },
-  filterInactiveText: { color: Colors.gray500, fontSize: FontSize.xs },
+  filterOnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
+  filterOff: { paddingHorizontal: 12, paddingVertical: 5 },
+  filterOffText: { color: Colors.gray500, fontSize: 12 },
 
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xxl,
+  // Hero 卡片
+  hero: {
+    marginHorizontal: Spacing.xl,
+    borderRadius: 20,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.lg,
   },
+  heroLeft: { alignItems: "center", gap: 6 },
+  heroRingWrapper: {
+    width: 72,
+    height: 72,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  heroRingBg: {
+    position: "absolute",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 6,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  heroRingCenter: { alignItems: "center" },
+  heroRingNum: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 26,
+  },
+  heroRingLabel: { fontSize: 9, color: "rgba(255,255,255,0.45)", marginTop: 1 },
+  heroRingDesc: {
+    fontSize: 10,
+    color: "rgba(255,255,255,0.6)",
+    fontWeight: "600",
+  },
+  heroRight: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+  },
+  heroStat: { alignItems: "center", gap: 3 },
+  heroStatVal: { fontSize: 22, fontWeight: "800", color: "#fff" },
+  heroStatLabel: {
+    fontSize: 9,
+    color: "rgba(255,255,255,0.45)",
+    textAlign: "center",
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+
+  // 卡片通用
+  card: {
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: Spacing.lg,
+    marginHorizontal: Spacing.xl,
+    marginBottom: Spacing.lg,
+  },
+
+  // 日历
   monthNav: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: Spacing.md,
   },
-  navBtn: { padding: 4 },
+  navBtn: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: Colors.gray50,
+  },
   monthText: {
     fontSize: FontSize.base,
-    fontWeight: "600",
+    fontWeight: "700",
     color: Colors.gray800,
   },
-
   weekRow: { flexDirection: "row", marginBottom: Spacing.sm },
   weekDay: {
-    width: cellSize,
     textAlign: "center",
-    fontSize: FontSize.xs,
+    fontSize: 11,
     color: Colors.gray400,
-    fontWeight: "500",
+    fontWeight: "600",
   },
 
   calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
-  dayCell: { width: cellSize, alignItems: "center", paddingVertical: 4 },
+  dayCell: { alignItems: "center", paddingVertical: 4 },
   dayNumWrapper: {
-    width: 24,
-    height: 24,
+    width: 26,
+    height: 26,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 12,
+    borderRadius: 13,
   },
   todayWrapper: { backgroundColor: Colors.rose400 },
-  dayNum: { fontSize: FontSize.xs, color: Colors.gray700, fontWeight: "500" },
-  todayNum: { color: "#fff", fontWeight: "700" },
-  statusDot: { width: 6, height: 6, borderRadius: 3, marginTop: 2 },
+  dayNum: { fontSize: 12, color: Colors.gray600, fontWeight: "500" },
+  todayNum: { color: "#fff", fontWeight: "800" },
+  // 新增：分数数字（在日期数字下方显示）
+  dayScore: { fontSize: 8, fontWeight: "700", marginTop: 1 },
+  statusDot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
 
   legend: {
     flexDirection: "row",
-    justifyContent: "center",
-    gap: 20,
+    alignItems: "center",
+    gap: 12,
     marginTop: Spacing.md,
+    flexWrap: "wrap",
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { fontSize: 11, color: Colors.gray500 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 10, color: Colors.gray500, fontWeight: "600" },
+  legendHint: { fontSize: 10, color: Colors.gray300, marginLeft: "auto" },
 
-  trendHeader: {
+  // 折线图
+  chartHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: Spacing.md,
   },
-  sectionLabel: {
+  chartLabel: {
     fontSize: FontSize.sm,
-    fontWeight: "500",
-    color: Colors.gray600,
+    fontWeight: "600",
+    color: Colors.gray700,
   },
-  trendBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
-  trendValue: { fontSize: FontSize.sm, fontWeight: "600" },
-  sparkline: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 2,
-    height: BAR_H,
+  trendBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
   },
-  sparkBar: { flex: 1, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
-  sparklineEmpty: {
-    height: BAR_H,
-    alignItems: "center",
-    justifyContent: "center",
+  trendBadgeText: { fontSize: 11, fontWeight: "700" },
+  chartSubLabel: {
+    fontSize: 10,
+    color: Colors.gray300,
+    marginTop: 6,
+    textAlign: "right",
   },
-  sparklineEmptyText: {
+  emptyChartText: {
     fontSize: FontSize.xs,
     color: Colors.gray300,
     textAlign: "center",
   },
 
-  recentList: { gap: Spacing.sm },
-  emptyState: { alignItems: "center", paddingVertical: Spacing.xxxl },
-  emptyEmoji: { fontSize: 48, marginBottom: Spacing.md },
+  // 最近扫描
+  sectionTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: Colors.gray700,
+    paddingHorizontal: Spacing.xl,
+    marginBottom: Spacing.sm,
+  },
+  recentList: { paddingHorizontal: Spacing.xl, gap: Spacing.sm },
+
+  // 空状态 — 更有设计感，加了一个跳转按钮
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: Spacing.xxl,
+    paddingHorizontal: Spacing.xl,
+  },
+  emptyIconWrapper: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#fff0f6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
   emptyText: {
     fontSize: FontSize.base,
-    fontWeight: "600",
+    fontWeight: "700",
     color: Colors.gray600,
+    marginBottom: 6,
   },
-  emptySubtext: { fontSize: FontSize.sm, color: Colors.gray400, marginTop: 4 },
+  emptySub: {
+    fontSize: FontSize.sm,
+    color: Colors.gray400,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+  },
+  emptyBtn: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+  },
+  emptyBtnText: { color: "#fff", fontSize: FontSize.sm, fontWeight: "700" },
 });
