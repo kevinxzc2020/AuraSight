@@ -242,7 +242,7 @@ function WeeklyInsightCard({ insight }: { insight: InsightData | null }) {
           <View style={styles.insightFreeBadge}>
             <Text style={styles.insightFreeBadgeText}>✓ Free insight</Text>
           </View>
-          <TouchableOpacity onPress={() => router.push("/(tabs)/report")}>
+          <TouchableOpacity onPress={() => router.push("/vip")}>
             <Text style={styles.insightVipCta}>Full report → VIP ✦</Text>
           </TouchableOpacity>
         </View>
