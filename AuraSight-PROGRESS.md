@@ -75,12 +75,62 @@ The Report screen now shows real data across four sections: a skin score trend l
 
 ---
 
+---
+
+## Session 3 — 2026-04-06
+
+### ✅ Onboarding Flow
+
+Built a 4-page dark-themed onboarding screen (`app/onboarding.tsx`) with horizontal swipe navigation using `Animated.ScrollView`. Each page has an emoji hero, animated title and subtitle (spring entry animation), and a shared `scrollX` value that drives the progress dot indicator and per-page scale/opacity transitions. The progress dots use `scaleX` transform instead of `width` animation to avoid a native driver conflict with the scroll event. The final page has two CTAs: "Create Account" (routes to profile) and "Explore as Guest" (routes to tabs). Completion sets `@aurasight_onboarding_done` in AsyncStorage. The `MilestonePreview` component on page 3 uses static `View` elements rather than `Animated.View` to avoid the `width` property conflict with `useNativeDriver: true`.
+
+### ✅ Routing Architecture Fix
+
+Resolved the "Attempted to navigate before mounting the Root Layout" error that had been causing crashes on cold start. The root cause was navigation logic placed in `_layout.tsx` and `app/(tabs)/_layout.tsx`, both of which execute before the navigator is mounted. The fix uses a minimal `app/index.tsx` as the true app entry point: it renders `null` during an async AsyncStorage check, then calls `router.replace` only after the check resolves — by which time the navigator is fully mounted. Both layout files were stripped of all navigation logic and reduced to their minimal forms (`<Stack>` and `<Tabs>` only).
+
+### ✅ Weekly Insight Card (Home Screen)
+
+Added a `WeeklyInsightCard` component to the Home screen. It displays a dark-background card (visually distinct from the rest of the light page) with a personalized one-sentence summary of the user's skin performance this week, three stat chips (avg score, score vs last week, scans), a "Free insight" badge, and a "Full report → VIP ✦" CTA linking to the VIP page. The card data comes from a new `GET /insights/:userId/weekly` backend endpoint that uses a rule engine to generate the insight text based on scan counts and score deltas rather than a real AI model.
+
+### ✅ Home Screen Copy Upgrade
+
+Changed "Daily Tasks" to "Daily Check-in" and replaced the flat task labels ("Scan your face") with emotionally warmer language: "How's your skin today?" for the face task and "Quick body check-in" for the body task. Subtitle copy was updated from "+50 pts" to "+50 pts · 30-second face scan" and "+50 pts · tracks shape & progress" to reduce the transactional feel.
+
+### ✅ Skin Diary (Scan Detail Page)
+
+Added a Skin Diary section to `app/scan/[id].tsx`. Users can select from 10 quick-tap tags (Poor sleep, Good sleep, Drank a lot, Stressed, Exercised, Oily food, Healthy food, Period, New skincare, Outdoors all day) and write a free-text note. Selections are saved immediately via a new `PATCH /scans/:id/diary` backend endpoint that stores `diary_note` and `diary_tags` fields on the scan document. A `KeyboardAvoidingView` wrapper prevents the input from being obscured by the software keyboard. Existing diary data is pre-populated when revisiting a scan. A "Saved" badge appears after successful saves.
+
+### ✅ Backend — New Endpoints
+
+Added `GET /insights/:userId/weekly` which queries this week's and last week's scans, computes average scores and scan counts, and runs them through a multi-branch rule engine that generates contextually appropriate insight text (12 different message variants). Added `PATCH /scans/:id/diary` which updates a scan document with diary tags and a free-text note.
+
+---
+
+## Session 4 — 2026-04-07
+
+### ✅ VIP Upgrade Page
+
+Built `app/vip.tsx` as a full-screen standalone page (no tab bar). The page has a dark gradient Hero section with the app icon, tagline, and a "Try free for 7 days · Cancel anytime" badge. Below the hero are five feature rows (Deep AI report, Permanent photo storage, 4K timelapse, Zero ads, Unlimited history) each with a check mark. Three pricing tiers are displayed as selectable cards: 30-Day Challenge ($9.99 one-time, no trial), Annual Plan ($34.99/yr at $2.99/mo, BEST VALUE badge, 7-day trial), and Monthly Plan ($4.99/mo, 7-day trial). The CTA button text updates dynamically based on the selected plan — "Start 7-day free trial ✦" for subscription plans and "Start my 30-day challenge ✦" for the one-time pack. Sub-text below the CTA reads "Free for 7 days · then $X · auto-renews · cancel anytime" to comply with App Store disclosure requirements. Payment is currently an Alert placeholder; RevenueCat integration is queued for the Development Build phase.
+
+### ✅ Settings Page
+
+Built `app/settings.tsx` as a standalone page accessible from a gear icon in the Profile tab header. The page has a dark Hero section displaying the user's avatar initial, name, email, and account type badge (Free/VIP/Guest), plus a "Try VIP free for 7 days" banner for non-VIP users. Content is organized into six groups: Skin Goals (five tappable chips that persist to AsyncStorage and will influence AI analysis), Notifications (daily reminder toggle, placeholder pending Development Build), Privacy & Security (Face ID toggle placeholder, Privacy Policy and Terms links), Personalization (language and appearance placeholders for Phase 2), Help & Feedback (Rate AuraSight and Send Feedback via mailto), and About (version number). A danger zone at the bottom offers Sign Out and Delete Account (with double-confirmation alert) for logged-in users.
+
+### ✅ History Page Redesign
+
+Rebuilt `app/(tabs)/history.tsx` from scratch with three major functional and visual upgrades. The top of the page now features a dark gradient Month Hero card showing the number of days scanned that month out of the total, average skin score, total scans, and day streak — giving users an immediate sense of achievement when they open the page. The calendar was upgraded so that days with scan records display the actual skin score number (e.g. "94") rather than a colored dot, colored green for 90+, amber for 70–89, and rose for below 70. Each calendar day with data is tappable and navigates directly to that scan's detail page. The 30-day bar chart was replaced with an SVG polyline chart drawn from actual skin score values; the chart auto-labels the last score, includes dashed reference lines, and shows an "↗ Improving" or "↘ Declining" badge based on the trend of the last three data points versus the first three.
+
+### ✅ Report Page Redesign
+
+Rebuilt `app/(tabs)/report.tsx` using a chapter-narrative structure that reorganizes the page around emotional impact rather than data modules. Chapter 1 (Before/After Hero) is now at the top: the first and latest scan photos sit side-by-side with score chips overlaid and a change bubble in the center showing the percentage delta. Below the photos, a rule-engine-generated summary sentence gives a personalized reading of the user's progress (12 variants based on scan count, score change magnitude, and direction). Chapter 2 presents three stat chips followed by the SVG score trend line chart with a gradient fill area. Chapter 3 is a Diary Patterns card that hints at upcoming lifestyle correlation analysis and prompts users to keep logging entries. Chapter 4 replaces the blurred-content VIP wall with a transparent preview card: the feature names are visible but the descriptions are rendered in near-white text, communicating "locked" without aggressive content suppression, and a 7-day trial CTA closes the page.
+
+---
+
 ## What's Next
 
-The immediate priority is completing the TFLite AI acne analysis integration, which is the core differentiating feature of the product. After that, the History screen has some remaining static elements (the sparkline chart) that should be connected to real data. The advertising system and VIP payment flow are next in line. Railway deployment (to eliminate the local IP switching friction) is deferred by choice but should be addressed before any external testing or App Store submission.
+The remaining UI/UX work before technical integrations consists of the App Icon and Splash Screen (requires asset preparation). After those are done, the Development Build phase begins, which will unlock AdMob ads, push notifications via expo-notifications, Face ID via expo-local-authentication, and the TFLite AI model for real acne detection. Chinese localization is planned as a later phase after the English version ships.
 
 ---
 
 ## Known Issues / Technical Debt
 
-The local IP address in `.env` (`EXPO_PUBLIC_API_URL`) must be manually updated each time the development machine changes networks. This is a known friction point. The password hashing uses SHA-256 rather than bcrypt — this is acceptable for MVP but must be upgraded before production. The `image_uri` stored in MongoDB is a local device path, which means photos are not accessible across devices or after app reinstall; cloud image storage (S3 or similar) is needed for the VIP permanent storage feature.
+The local IP address in `.env` (`EXPO_PUBLIC_API_URL`) must be manually updated each session when the development machine changes networks — the two-machine workflow (work laptop + home desktop) makes this a recurring friction point. The password hashing uses SHA-256 rather than bcrypt; this must be upgraded before production. The `image_uri` stored in MongoDB is a local device path, meaning photos are inaccessible across devices or after reinstall; S3 or equivalent cloud storage is required for the VIP permanent storage feature. The MongoDB Atlas password is currently exposed in the connection string and should be rotated before any public release.
