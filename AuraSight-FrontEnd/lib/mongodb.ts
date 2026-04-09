@@ -63,7 +63,7 @@ export interface StatsResult {
 
 // ─── 配置 ─────────────────────────────────────────────────
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 const CACHE_SCANS_KEY = "@aurasight_scans";
 const CACHE_PENDING_KEY = "@aurasight_pending";
 

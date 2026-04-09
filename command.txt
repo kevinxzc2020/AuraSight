@@ -1,0 +1,3 @@
+// npm run ip 
+// npm run backend
+// npm run frontend

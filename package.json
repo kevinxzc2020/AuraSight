@@ -1,0 +1,26 @@
+{
+  "name": "aurasight",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "ip": "node scripts/update-ip.js",
+    "backend": "npm run dev --prefix AuraSight-api",
+    "frontend": "cd AuraSight-FrontEnd && npx expo start"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kevinxzc2020/AuraSight.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kevinxzc2020/AuraSight/issues"
+  },
+  "homepage": "https://github.com/kevinxzc2020/AuraSight#readme",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
