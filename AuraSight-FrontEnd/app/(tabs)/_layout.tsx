@@ -1,15 +1,17 @@
 import { Tabs } from "expo-router";
 import { Camera, Clock, FileText, Home, User } from "lucide-react-native";
 import { StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Colors } from "../../constants/theme";
 import { Settings } from "lucide-react-native";
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
+        tabBarStyle: [styles.tabBar, { paddingBottom: insets.bottom + 4 }],
         tabBarActiveTintColor: Colors.rose400,
         tabBarInactiveTintColor: Colors.gray400,
         tabBarLabelStyle: styles.tabLabel,
@@ -78,9 +80,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.95)",
     borderTopColor: Colors.rose100,
     borderTopWidth: 1,
-    height: 60,
-    paddingBottom: 8,
-    paddingTop: 6,
+    paddingTop: 0,
   },
   tabLabel: { fontSize: 10, fontWeight: "500" },
 });

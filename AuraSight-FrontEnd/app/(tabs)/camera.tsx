@@ -442,7 +442,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: Spacing.xl,
-    backgroundColor: "#fff",
+    backgroundColor: "#FFF3F6",
   },
   permissionEmoji: { fontSize: 56, marginBottom: Spacing.md },
   permissionTitle: {
@@ -529,16 +529,18 @@ const styles = StyleSheet.create({
   },
 
   bottomDrawer: {
-    backgroundColor: "#fff",
+    backgroundColor: "#FFFBF9",
     paddingTop: 10,
     paddingHorizontal: Spacing.lg,
     paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F9E0EE",
   },
   drawerHandle: {
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: Colors.gray200,
+    backgroundColor: "#F0ABCA",
     alignSelf: "center",
     marginBottom: Spacing.md,
   },
@@ -590,12 +592,14 @@ const styles = StyleSheet.create({
   cancelDotText: { color: "#fff", fontSize: 8, fontWeight: "700" },
 
   shutterOuter: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "rgba(244,114,182,0.15)",
+    width: 82,
+    height: 82,
+    borderRadius: 41,
+    backgroundColor: "rgba(244,114,182,0.18)",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(244,114,182,0.25)",
   },
   shutterMiddle: {
     width: 68,
@@ -603,7 +607,7 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     backgroundColor: "#fff",
     borderWidth: 3,
-    borderColor: Colors.rose200,
+    borderColor: "#F472B6",
     alignItems: "center",
     justifyContent: "center",
   },

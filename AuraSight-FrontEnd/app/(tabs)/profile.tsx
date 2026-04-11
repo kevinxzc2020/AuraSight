@@ -128,12 +128,12 @@ export default function ProfileScreen() {
     await AsyncStorage.setItem("@aurasight_user_id", data.id);
     await AsyncStorage.setItem("@aurasight_user_name", data.name);
     await AsyncStorage.setItem("@aurasight_user_email", data.email);
-    await AsyncStorage.setItem("@aurasight_user_mode", "registered");
+    await AsyncStorage.setItem("@aurasight_user_mode", "vip");
     setUser({
       id: data.id,
       name: data.name,
       email: data.email,
-      mode: "registered",
+      mode: "vip",
     });
   }
 
@@ -157,7 +157,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.center}>
+      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.center}>
         <ActivityIndicator size="large" color={Colors.rose400} />
       </LinearGradient>
     );
@@ -166,8 +166,8 @@ export default function ProfileScreen() {
   // ─── 已登录 ───────────────────────────────────────────────
   if (user) {
     return (
-      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
-        <SafeAreaView style={styles.safeArea}>
+      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
+        <SafeAreaView style={styles.safeArea} edges={["top"]}>
           {/* 顶部标题 + 设置齿轮入口 */}
           <View style={styles.topNav}>
             <Text style={styles.topNavTitle}>Profile</Text>
@@ -246,8 +246,8 @@ export default function ProfileScreen() {
 
   // ─── 未登录 ───────────────────────────────────────────────
   return (
-    <LinearGradient colors={["#fff5f5", "#ffffff"]} style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
+    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{ flex: 1 }}
@@ -362,6 +362,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
+  // SafeAreaView edges applied inline
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
 
@@ -415,6 +416,13 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
   },
   sectionItem: { flexDirection: "row", alignItems: "center", gap: Spacing.md },
   sectionLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.gray500 },
@@ -485,16 +493,24 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     marginBottom: Spacing.lg,
     gap: Spacing.md,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
   },
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
     borderWidth: 1,
-    borderColor: Colors.gray100,
+    borderColor: "#F9E0EE",
     borderRadius: Radius.lg,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
+    backgroundColor: "#FFFBFD",
   },
   input: { flex: 1, fontSize: FontSize.base, color: Colors.gray800 },
   submitBtn: {

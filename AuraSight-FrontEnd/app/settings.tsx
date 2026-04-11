@@ -213,28 +213,28 @@ export default function SettingsScreen() {
   const initials = userName ? userName.charAt(0).toUpperCase() : "?";
   const modeLabel =
     userMode === "vip" ? "VIP ✦" : userMode === "registered" ? "Free" : "Guest";
-  const modeBg = userMode === "vip" ? "#fde68a20" : "#f0fdf4";
-  const modeColor = userMode === "vip" ? "#d97706" : Colors.emerald;
+  const modeBg = userMode === "vip" ? "rgba(253,230,138,0.25)" : "rgba(255,255,255,0.25)";
+  const modeColor = userMode === "vip" ? "#fde68a" : "#fff";
 
   return (
     <View style={st.root}>
       <LinearGradient
-        colors={["#fff5f5", "#ffffff"]}
+        colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
         style={StyleSheet.absoluteFillObject}
       />
 
-      {/* ── HERO 顶部：深色背景，用户信息一目了然 ── */}
-      <LinearGradient colors={["#0d0d1a", "#1a0a14"]} style={st.hero}>
-        <SafeAreaView>
+      {/* ── HERO 顶部：玫瑰渐变，品牌一致 ── */}
+      <LinearGradient colors={["#F43F8F", "#F472B6", "#FB9FBD"]} style={st.hero}>
+        <SafeAreaView edges={["top"]}>
           <TouchableOpacity onPress={() => router.back()} style={st.backBtn}>
             <Text style={st.backText}>‹ Back</Text>
           </TouchableOpacity>
 
           <View style={st.heroBody}>
             {/* 头像圆 */}
-            <LinearGradient colors={Gradients.roseMain} style={st.avatar}>
+            <View style={st.avatar}>
               <Text style={st.avatarText}>{initials}</Text>
-            </LinearGradient>
+            </View>
 
             {/* 名字 + 邮箱 */}
             <View style={st.heroInfo}>
@@ -428,6 +428,25 @@ export default function SettingsScreen() {
           />
         </View>
 
+        {/* ── 开发者测试 ── */}
+        <Text style={st.sectionLabel}>DEV TOOLS</Text>
+        <View style={[st.card, Shadow.card]}>
+          <Row
+            iconBg="#fef9c3"
+            iconEl={<Crown size={15} color="#d97706" />}
+            label="Switch to VIP (Test)"
+            sub={`Current: ${userMode}`}
+            onPress={async () => {
+              const next = userMode === "vip" ? "registered" : "vip";
+              await AsyncStorage.setItem("@aurasight_user_mode", next);
+              setUserMode(next as any);
+              Alert.alert(next === "vip" ? "👑 VIP activated!" : "✓ Switched to Free", `Mode is now: ${next}`);
+            }}
+            isFirst
+            isLast
+          />
+        </View>
+
         {/* ── 危险操作 — 放最底部，红色区分，防误操作 ── */}
         {isLoggedIn && (
           <>
@@ -485,6 +504,9 @@ const st = StyleSheet.create({
     borderRadius: 26,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.25)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.4)",
   },
   avatarText: { fontSize: 22, fontWeight: "800", color: "#fff" },
   heroInfo: { flex: 1 },
@@ -507,22 +529,24 @@ const st = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "rgba(244,114,182,0.15)",
+    backgroundColor: "rgba(255,255,255,0.2)",
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
   },
   vipBannerText: {
     flex: 1,
     fontSize: FontSize.xs,
-    color: "#f472b6",
+    color: "#fff",
     fontWeight: "700",
   },
   vipBannerArrow: {
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.2)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -548,6 +572,8 @@ const st = StyleSheet.create({
     borderRadius: 20,
     marginBottom: Spacing.lg,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
   },
   cardNote: {
     fontSize: FontSize.xs,

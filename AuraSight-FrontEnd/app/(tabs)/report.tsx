@@ -578,13 +578,13 @@ function VIPUpgradeSection({
   return (
     <View style={st.vipPreviewCard}>
       {/* 深色 Hero 区 */}
-      <LinearGradient colors={["#1a0a14", "#0d0d1a"]} style={st.vipPreviewHero}>
+      <View style={st.vipPreviewHero}>
         <Lock size={16} color="rgba(255,255,255,0.4)" />
         <Text style={st.vipPreviewTitle}>Deep Analysis</Text>
         <Text style={st.vipPreviewSub}>
           Unlock AI-powered insights about what&apos;s driving your skin changes
         </Text>
-      </LinearGradient>
+      </View>
 
       {/* 功能预览列表 */}
       <View style={st.vipPreviewList}>
@@ -660,7 +660,7 @@ export default function ReportScreen() {
 
   if (loading) {
     return (
-      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={st.center}>
+      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.center}>
         <ActivityIndicator size="large" color={Colors.rose400} />
       </LinearGradient>
     );
@@ -669,7 +669,7 @@ export default function ReportScreen() {
   // 空状态：没有数据时引导用户去扫描
   if (!data || data.total_scans === 0) {
     return (
-      <LinearGradient colors={["#fff5f5", "#ffffff"]} style={st.container}>
+      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
         <SafeAreaView style={st.center}>
           <View style={st.emptyIconWrapper}>
             <Text style={{ fontSize: 40 }}>📊</Text>
@@ -695,8 +695,8 @@ export default function ReportScreen() {
   const isImproved = data.score_change_pct >= 0;
 
   return (
-    <LinearGradient colors={["#fff5f5", "#ffffff"]} style={st.container}>
-      <SafeAreaView style={st.safeArea}>
+    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
+      <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={st.scroll}
@@ -800,16 +800,20 @@ const st = StyleSheet.create({
 
   // 标题
   titleArea: { marginBottom: Spacing.md },
-  pageTitle: { fontSize: 28, fontWeight: "800", color: Colors.gray800 },
+  pageTitle: { fontSize: 28, fontWeight: "800", color: "#1F2937", letterSpacing: -0.5 },
   dateRange: { fontSize: FontSize.sm, color: Colors.gray400, marginTop: 4 },
 
   // Before/After Hero 卡片
   heroCard: {
     backgroundColor: Colors.white,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
-    ...Shadow.card,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    elevation: 4,
   },
   compareRow: {
     flexDirection: "row",
@@ -868,9 +872,11 @@ const st = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
-    backgroundColor: "#fff5f5",
-    borderRadius: 12,
+    backgroundColor: "#FFF0F8",
+    borderRadius: 14,
     padding: Spacing.md,
+    borderWidth: 1,
+    borderColor: "#FCE7F3",
   },
   summaryText: {
     flex: 1,
@@ -883,13 +889,20 @@ const st = StyleSheet.create({
   statsRow: { flexDirection: "row", gap: Spacing.sm, marginBottom: Spacing.lg },
   statCard: {
     flex: 1,
-    backgroundColor: Colors.white,
+    backgroundColor: "#FFF0F8",
     borderRadius: Radius.xl,
     padding: Spacing.md,
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(244,114,182,0.15)",
+    shadowColor: "#F472B6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  statVal: { fontSize: FontSize.xl, fontWeight: "800", color: Colors.gray800 },
-  statLbl: { fontSize: 10, color: Colors.gray500, marginTop: 2 },
+  statVal: { fontSize: FontSize.xl, fontWeight: "800", color: "#F472B6" },
+  statLbl: { fontSize: 10, color: "#9CA3AF", marginTop: 2 },
 
   // 通用卡片
   card: {
@@ -897,6 +910,11 @@ const st = StyleSheet.create({
     borderRadius: 20,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -992,7 +1010,7 @@ const st = StyleSheet.create({
     marginBottom: Spacing.lg,
     ...Shadow.card,
   },
-  vipPreviewHero: { padding: Spacing.lg, alignItems: "center", gap: 6 },
+  vipPreviewHero: { padding: Spacing.lg, alignItems: "center", gap: 6, backgroundColor: "#1A0814" },
   vipPreviewTitle: {
     fontSize: FontSize.base,
     fontWeight: "800",

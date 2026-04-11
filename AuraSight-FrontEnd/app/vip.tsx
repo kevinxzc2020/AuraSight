@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -11,303 +12,282 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import {
-  ChevronLeft,
-  Check,
-  Sparkles,
-  Camera,
-  Video,
-  Ban,
-} from "lucide-react-native";
-import {
-  Colors,
-  Gradients,
-  Spacing,
-  Radius,
-  FontSize,
-  Shadow,
-} from "../constants/theme";
+import { ChevronLeft, Check, Sparkles, Crown, Star } from "lucide-react-native";
+import { Colors, Gradients, Spacing, Radius, FontSize } from "../constants/theme";
 
 const { width } = Dimensions.get("window");
 
-// ─── 功能列表 ─────────────────────────────────────────────
-// 每一项都用"结果语言"而不是"功能语言"
-// 用户买的不是功能，而是对自己皮肤的投资
+// ─── Features ─────────────────────────────────────────────────
 const FEATURES = [
-  {
-    icon: "📊",
-    title: "Deep AI skin report",
-    sub: "Weekly cause analysis — weather, diet, hormones, sleep",
-  },
-  {
-    icon: "📸",
-    title: "Permanent photo storage",
-    sub: "Your 30-day transformation, saved forever across devices",
-  },
-  {
-    icon: "🎬",
-    title: "4K timelapse video",
-    sub: "Watch your transformation in 30 seconds — shareable",
-  },
-  {
-    icon: "🚫",
-    title: "Zero ads, ever",
-    sub: "Pure experience, no interruptions",
-  },
-  {
-    icon: "🔄",
-    title: "Unlimited scan history",
-    sub: "Free tier is 30 days — VIP keeps everything",
-  },
+  { icon: "📊", title: "Deep AI skin report", sub: "Weekly cause analysis — weather, diet, hormones, sleep", color: "#FFF0F8", dot: "#F472B6" },
+  { icon: "📸", title: "Permanent photo storage", sub: "30-day transformation saved forever across devices", color: "#FFF4F0", dot: "#FB923C" },
+  { icon: "🎬", title: "4K timelapse video", sub: "Watch your skin journey in 30 seconds — shareable", color: "#F0FDF8", dot: "#10B981" },
+  { icon: "🚫", title: "Zero ads, ever", sub: "Clean experience with zero interruptions", color: "#FFF0FB", dot: "#C084FC" },
+  { icon: "🔄", title: "Unlimited history", sub: "Free tier is 30 days — VIP keeps everything forever", color: "#F0F8FF", dot: "#60A5FA" },
 ];
 
-// ─── 定价方案 ─────────────────────────────────────────────
-// 三档结构：
-//   - 30天挑战包：无试用，一次性低价，给不想订阅的用户
-//   - 年订阅：试用 + 最优性价比，主推
-//   - 月订阅：试用 + 灵活，给观望用户
+// ─── Plans ────────────────────────────────────────────────────
 const PLANS = [
-  {
-    id: "challenge",
-    label: "30-Day Challenge",
-    badge: "🎯 ONE-TIME",
-    price: "$9.99",
-    period: "one-time payment",
-    sub: "Perfect for your first challenge",
-    trial: false,
-    featured: false,
-  },
   {
     id: "annual",
     label: "Annual Plan",
-    badge: "⭐ BEST VALUE",
+    badge: "BEST VALUE",
     price: "$34.99",
-    period: "per year  ·  $2.99/mo",
+    period: "/year",
+    perMonth: "$2.99/mo",
     sub: "Save 40% vs monthly",
     trial: true,
-    featured: true, // 视觉上高亮这个选项，引导用户选它
+    featured: true,
   },
   {
     id: "monthly",
-    label: "Monthly Plan",
+    label: "Monthly",
     badge: null,
     price: "$4.99",
-    period: "per month",
+    period: "/month",
+    perMonth: null,
     sub: "Cancel anytime",
     trial: true,
+    featured: false,
+  },
+  {
+    id: "challenge",
+    label: "30-Day Challenge",
+    badge: "ONE-TIME",
+    price: "$9.99",
+    period: "one-time",
+    perMonth: null,
+    sub: "Perfect for your first challenge",
+    trial: false,
     featured: false,
   },
 ];
 
 export default function VIPScreen() {
-  // 默认选中年订阅，性价比最高，引导用户往这里走
   const [selected, setSelected] = useState("annual");
-
   const selectedPlan = PLANS.find((p) => p.id === selected)!;
 
-  function handleSubscribe() {
-    // Phase 2：接入 RevenueCat 或 Stripe 真实付款
-    // 现在先用 Alert 占位，让 UI 流程完整
-    const trialText = selectedPlan.trial ? "7-day free trial, then " : "";
+  async function handleSubscribe() {
+    // 模拟购买成功 → 写入 VIP 身份
+    await AsyncStorage.setItem("@aurasight_user_mode", "vip");
     Alert.alert(
-      "Coming Soon",
-      `${trialText}${selectedPlan.price} ${selectedPlan.period}.\n\nIn-app purchases will be available in the next update.`,
-      [{ text: "Got it", style: "cancel" }],
+      "🎉 Welcome to VIP!",
+      "Your account has been upgraded. Enjoy unlimited access.",
+      [{ text: "Let's go!", onPress: () => router.back() }],
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Hero 区域：深色背景，和首页的 Weekly Insight 卡片同一视觉语言
-          这让用户感受到"进入了一个更高级的区域" */}
-      <LinearGradient colors={["#0d0d1a", "#1a0a14"]} style={styles.hero}>
-        <SafeAreaView>
-          {/* 返回按钮 */}
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backBtn}
-          >
-            <ChevronLeft size={24} color="rgba(255,255,255,0.6)" />
+
+      {/* ── Hero ─────────────────────────────────────────────── */}
+      {/* Rich rose-burgundy gradient: premium but still on-brand */}
+      <LinearGradient
+        colors={["#C0174D", "#E8336F", "#F472B6"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        {/* Decorative glows */}
+        <View style={styles.heroGlow1} />
+        <View style={styles.heroGlow2} />
+
+        <SafeAreaView edges={["top"]}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <View style={styles.backBtnInner}>
+              <ChevronLeft size={20} color="#fff" />
+            </View>
           </TouchableOpacity>
 
-          {/* 品牌图标 */}
-          <View style={styles.heroIcon}>
-            <Text style={styles.heroIconText}>✦</Text>
+          {/* Crown icon */}
+          <View style={styles.crownWrap}>
+            <LinearGradient colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.1)"]} style={styles.crownBg}>
+              <Crown size={28} color="#FDE68A" />
+            </LinearGradient>
+            {/* Gold sparkle dots */}
+            <View style={[styles.sparkle, { top: -4, right: -4 }]}>
+              <Text style={styles.sparkleDot}>✦</Text>
+            </View>
           </View>
 
           <Text style={styles.heroTitle}>AuraSight VIP</Text>
-          <Text style={styles.heroSub}>
-            Your skin deserves more than guesswork.{"\n"}Let data lead the way.
+          <Text style={styles.heroTagline}>
+            Your skin transformation,{"\n"}powered by real data.
           </Text>
 
-          {/* 7天试用标注 — 放在 Hero 里，第一眼就看到，大幅降低心理门槛 */}
-          <View style={styles.trialBadge}>
-            <Sparkles size={12} color="#f472b6" />
-            <Text style={styles.trialBadgeText}>
-              Try free for 7 days · Cancel anytime
+          {/* Trial pill */}
+          <View style={styles.trialPill}>
+            <Sparkles size={11} color="#FDE68A" />
+            <Text style={styles.trialPillText}>7-day free trial · Cancel anytime</Text>
+          </View>
+
+          {/* Social proof */}
+          <View style={styles.socialProof}>
+            <View style={styles.avatarStack}>
+              {["#F472B6", "#C084FC", "#60A5FA"].map((c, i) => (
+                <View key={i} style={[styles.proofAvatar, { backgroundColor: c, marginLeft: i > 0 ? -10 : 0, zIndex: 3 - i }]}>
+                  <Text style={styles.proofAvatarText}>✦</Text>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.socialProofText}>
+              Join 2,400+ users transforming their skin
             </Text>
           </View>
         </SafeAreaView>
       </LinearGradient>
 
+      {/* ── Content ───────────────────────────────────────────── */}
       <ScrollView
-        style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        style={styles.scroll}
       >
-        {/* 功能列表 */}
-        <View style={[styles.card, Shadow.card]}>
-          <Text style={styles.sectionLabel}>Everything included</Text>
-          {FEATURES.map((f, i) => (
-            <View
-              key={i}
-              style={[
-                styles.featureRow,
-                i < FEATURES.length - 1 && styles.featureRowBorder,
-              ]}
-            >
-              <View style={styles.featureIcon}>
-                <Text style={styles.featureEmoji}>{f.icon}</Text>
-              </View>
-              <View style={styles.featureText}>
-                <Text style={styles.featureTitle}>{f.title}</Text>
-                <Text style={styles.featureSub}>{f.sub}</Text>
-              </View>
-              <Check size={16} color={Colors.emerald} />
-            </View>
-          ))}
-        </View>
 
-        {/* 定价选择区 */}
-        <Text style={styles.sectionLabel}>Choose your plan</Text>
+        {/* ── Plan selector ── */}
+        <Text style={styles.sectionLabel}>CHOOSE YOUR PLAN</Text>
 
         {PLANS.map((plan) => {
           const isSelected = selected === plan.id;
+          const isFeatured = plan.featured;
+
+          if (isFeatured) {
+            return (
+              <TouchableOpacity
+                key={plan.id}
+                onPress={() => setSelected(plan.id)}
+                activeOpacity={0.9}
+                style={styles.featuredPlanWrap}
+              >
+                <LinearGradient
+                  colors={isSelected ? ["#F43F8F", "#F472B6"] : ["#F9E0EE", "#FCE7F3"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.featuredPlanGradient}
+                >
+                  {/* Badge */}
+                  <View style={styles.featuredBadge}>
+                    <Star size={9} color={isSelected ? "#F43F8F" : "#9CA3AF"} fill={isSelected ? "#F43F8F" : "none"} />
+                    <Text style={[styles.featuredBadgeText, !isSelected && { color: "#9CA3AF" }]}>BEST VALUE</Text>
+                  </View>
+
+                  <View style={styles.featuredPlanRow}>
+                    <View style={styles.featuredPlanLeft}>
+                      <Text style={[styles.featuredPlanName, !isSelected && { color: "#6B7280" }]}>Annual Plan</Text>
+                      <Text style={[styles.featuredPlanTrial, !isSelected && { color: "#9CA3AF" }]}>
+                        ✓ 7-day free trial included
+                      </Text>
+                      <Text style={[styles.featuredPlanSub, !isSelected && { color: "#9CA3AF" }]}>
+                        Save 40% vs monthly
+                      </Text>
+                    </View>
+                    <View style={styles.featuredPlanRight}>
+                      <Text style={[styles.featuredPlanPrice, !isSelected && { color: "#1F2937" }]}>$34.99</Text>
+                      <Text style={[styles.featuredPlanPeriod, !isSelected && { color: "#9CA3AF" }]}>/year</Text>
+                      <Text style={[styles.featuredPlanPerMonth, !isSelected && { color: "#9CA3AF" }]}>$2.99/mo</Text>
+                    </View>
+                  </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            );
+          }
+
           return (
             <TouchableOpacity
               key={plan.id}
               onPress={() => setSelected(plan.id)}
               activeOpacity={0.85}
-              style={[
-                styles.planCard,
-                isSelected && styles.planCardSelected,
-                plan.featured && isSelected && styles.planCardFeatured,
-              ]}
+              style={[styles.planCard, isSelected && styles.planCardSelected]}
             >
-              {/* 徽章：BEST VALUE / 🎯 ONE-TIME */}
               {plan.badge && (
-                <View
-                  style={[
-                    styles.planBadge,
-                    plan.featured
-                      ? styles.planBadgeFeatured
-                      : styles.planBadgeNeutral,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.planBadgeText,
-                      plan.featured
-                        ? styles.planBadgeTextFeatured
-                        : styles.planBadgeTextNeutral,
-                    ]}
-                  >
+                <View style={[styles.planBadge, isSelected && styles.planBadgeActive]}>
+                  <Text style={[styles.planBadgeText, isSelected && styles.planBadgeTextActive]}>
                     {plan.badge}
                   </Text>
                 </View>
               )}
-
               <View style={styles.planRow}>
-                {/* 左边：名称 + 描述 */}
                 <View style={styles.planLeft}>
-                  <Text
-                    style={[
-                      styles.planLabel,
-                      isSelected && styles.planLabelSelected,
-                    ]}
-                  >
-                    {plan.label}
-                  </Text>
-                  <Text style={styles.planSub}>{plan.sub}</Text>
-                  {/* 7天试用提示 — 只在有试用的方案里显示 */}
+                  <Text style={[styles.planName, isSelected && styles.planNameSelected]}>{plan.label}</Text>
                   {plan.trial && (
-                    <Text style={styles.planTrial}>
-                      7-day free trial included
+                    <Text style={[styles.planTrial, isSelected && { color: "#F472B6" }]}>
+                      7-day free trial
                     </Text>
                   )}
+                  <Text style={styles.planSub}>{plan.sub}</Text>
                 </View>
-
-                {/* 右边：价格 */}
                 <View style={styles.planRight}>
-                  <Text
-                    style={[
-                      styles.planPrice,
-                      isSelected && styles.planPriceSelected,
-                    ]}
-                  >
-                    {plan.price}
-                  </Text>
+                  <Text style={[styles.planPrice, isSelected && styles.planPriceSelected]}>{plan.price}</Text>
                   <Text style={styles.planPeriod}>{plan.period}</Text>
                 </View>
               </View>
-
-              {/* 选中状态指示器 */}
-              <View
-                style={[
-                  styles.planRadio,
-                  isSelected && styles.planRadioSelected,
-                ]}
-              >
-                {isSelected && <View style={styles.planRadioDot} />}
+              {/* Radio */}
+              <View style={[styles.radio, isSelected && styles.radioSelected]}>
+                {isSelected && <View style={styles.radioDot} />}
               </View>
             </TouchableOpacity>
           );
         })}
 
-        {/* 动态 CTA 按钮 — 文案根据选中方案变化，让用户清楚知道自己在做什么 */}
-        <TouchableOpacity
-          onPress={handleSubscribe}
-          activeOpacity={0.85}
-          style={styles.ctaWrapper}
-        >
+        {/* ── Features ── */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>EVERYTHING INCLUDED</Text>
+
+        <View style={styles.featuresCard}>
+          {FEATURES.map((f, i) => (
+            <View
+              key={i}
+              style={[styles.featureRow, i < FEATURES.length - 1 && styles.featureDivider]}
+            >
+              <View style={[styles.featureIconWrap, { backgroundColor: f.color }]}>
+                <Text style={styles.featureEmoji}>{f.icon}</Text>
+                <View style={[styles.featureDot, { backgroundColor: f.dot }]} />
+              </View>
+              <View style={styles.featureTextWrap}>
+                <Text style={styles.featureTitle}>{f.title}</Text>
+                <Text style={styles.featureSub}>{f.sub}</Text>
+              </View>
+              <View style={styles.featureCheck}>
+                <Check size={13} color="#10B981" strokeWidth={3} />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* ── CTA ── */}
+        <TouchableOpacity onPress={handleSubscribe} activeOpacity={0.88} style={styles.ctaWrap}>
           <LinearGradient
-            colors={Gradients.roseMain}
+            colors={["#C0174D", "#F43F8F", "#F472B6"]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.ctaBtn}
           >
+            <Crown size={16} color="#FDE68A" />
             <Text style={styles.ctaText}>
-              {selectedPlan.trial
-                ? "Start 7-day free trial ✦"
-                : "Start my 30-day challenge ✦"}
+              {selectedPlan.trial ? "Start 7-day free trial" : "Start my 30-day challenge"}
             </Text>
-            {selectedPlan.trial && (
-              <Text style={styles.ctaSub}>
-                Free for 7 days · then {selectedPlan.price}{" "}
-                {selectedPlan.period} · auto-renews · cancel anytime
-              </Text>
-            )}
+            <Text style={styles.ctaArrow}>→</Text>
           </LinearGradient>
+          {selectedPlan.trial ? (
+            <Text style={styles.ctaDisclaimer}>
+              Free for 7 days · then {selectedPlan.price}{selectedPlan.period} · auto-renews · cancel anytime
+            </Text>
+          ) : (
+            <Text style={styles.ctaDisclaimer}>One-time payment · no subscription</Text>
+          )}
         </TouchableOpacity>
 
-        {/* 法律文字 + 恢复购买 */}
-        <View style={styles.legal}>
-          <TouchableOpacity>
-            <Text style={styles.legalLink}>Restore purchase</Text>
-          </TouchableOpacity>
+        {/* ── Legal ── */}
+        <View style={styles.legalRow}>
+          <TouchableOpacity><Text style={styles.legalLink}>Restore purchase</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
-          <TouchableOpacity>
-            <Text style={styles.legalLink}>Terms</Text>
-          </TouchableOpacity>
+          <TouchableOpacity><Text style={styles.legalLink}>Terms</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
-          <TouchableOpacity>
-            <Text style={styles.legalLink}>Privacy</Text>
-          </TouchableOpacity>
+          <TouchableOpacity><Text style={styles.legalLink}>Privacy</Text></TouchableOpacity>
         </View>
 
         <Text style={styles.disclaimer}>
-          Subscriptions auto-renew unless cancelled at least 24 hours before the
-          renewal date. Manage subscriptions in App Store settings.
+          Subscriptions auto-renew unless cancelled at least 24 hours before the renewal date.
+          Manage in App Store settings.
         </Text>
       </ScrollView>
     </View>
@@ -315,218 +295,219 @@ export default function VIPScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff5f5" },
+  container: { flex: 1, backgroundColor: "#FFF5F8" },
 
-  // Hero
-  hero: { paddingBottom: 28 },
-  backBtn: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  heroIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: "rgba(244,114,182,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: Spacing.xl,
-    marginBottom: Spacing.md,
-  },
-  heroIconText: { fontSize: 26, color: "#f472b6" },
-  heroTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#fff",
-    paddingHorizontal: Spacing.xl,
-    letterSpacing: -0.5,
-    marginBottom: 8,
-  },
-  heroSub: {
-    fontSize: FontSize.sm,
-    color: "rgba(255,255,255,0.5)",
-    paddingHorizontal: Spacing.xl,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  trialBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginHorizontal: Spacing.xl,
-    backgroundColor: "rgba(244,114,182,0.15)",
-    borderRadius: Radius.full,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    alignSelf: "flex-start",
-  },
-  trialBadgeText: {
-    fontSize: FontSize.xs,
-    color: "#f472b6",
-    fontWeight: "700",
-  },
-
-  // Scroll
-  scroll: { flex: 1 },
-  scrollContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
-    paddingBottom: 40,
-  },
-  sectionLabel: {
-    fontSize: FontSize.xs,
-    fontWeight: "700",
-    color: Colors.gray400,
-    letterSpacing: 0.8,
-    marginBottom: Spacing.md,
-    marginTop: Spacing.sm,
-  },
-
-  // Features card
-  card: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xxl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    paddingVertical: Spacing.sm,
-  },
-  featureRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.gray50 },
-  featureIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#fff0f6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  featureEmoji: { fontSize: 18 },
-  featureText: { flex: 1 },
-  featureTitle: {
-    fontSize: FontSize.sm,
-    fontWeight: "600",
-    color: Colors.gray800,
-  },
-  featureSub: {
-    fontSize: FontSize.xs,
-    color: Colors.gray400,
-    marginTop: 2,
-    lineHeight: 16,
-  },
-
-  // Plan cards
-  planCard: {
-    backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.sm,
-    borderWidth: 1.5,
-    borderColor: Colors.gray100,
+  // ── Hero
+  hero: {
+    paddingBottom: 28,
+    overflow: "hidden",
     position: "relative",
   },
-  planCardSelected: { borderColor: Colors.rose300 },
-  planCardFeatured: { borderColor: Colors.rose400, borderWidth: 2 },
-  planBadge: {
+  heroGlow1: {
     position: "absolute",
-    top: -10,
-    left: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: Radius.full,
+    width: 260, height: 260,
+    borderRadius: 130,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    top: -80, right: -60,
   },
-  planBadgeFeatured: { backgroundColor: Colors.rose400 },
-  planBadgeNeutral: {
-    backgroundColor: "#fff0f6",
+  heroGlow2: {
+    position: "absolute",
+    width: 140, height: 140,
+    borderRadius: 70,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    bottom: -20, left: 20,
+  },
+
+  backBtn: { paddingHorizontal: 20, paddingTop: 10, marginBottom: 16 },
+  backBtnInner: {
+    width: 36, height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center", justifyContent: "center",
+  },
+
+  crownWrap: { marginLeft: 24, marginBottom: 14, position: "relative", alignSelf: "flex-start" },
+  crownBg: {
+    width: 60, height: 60,
+    borderRadius: 20,
+    alignItems: "center", justifyContent: "center",
     borderWidth: 1,
-    borderColor: Colors.rose200,
+    borderColor: "rgba(255,255,255,0.25)",
   },
-  planBadgeText: { fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
-  planBadgeTextFeatured: { color: "#fff" },
-  planBadgeTextNeutral: { color: Colors.rose400 },
+  sparkle: { position: "absolute" },
+  sparkleDot: { fontSize: 12, color: "#FDE68A" },
 
-  planRow: { flexDirection: "row", alignItems: "flex-start", paddingRight: 28 },
+  heroTitle: {
+    fontSize: 30, fontWeight: "800", color: "#fff",
+    paddingHorizontal: 24, letterSpacing: -0.5, marginBottom: 6,
+  },
+  heroTagline: {
+    fontSize: 14, color: "rgba(255,255,255,0.75)",
+    paddingHorizontal: 24, lineHeight: 21, marginBottom: 16,
+  },
+
+  trialPill: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    marginHorizontal: 24,
+    backgroundColor: "rgba(253,230,138,0.2)",
+    borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 8,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "rgba(253,230,138,0.3)",
+    marginBottom: 16,
+  },
+  trialPillText: { fontSize: 11, color: "#FDE68A", fontWeight: "700" },
+
+  socialProof: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 24 },
+  avatarStack: { flexDirection: "row" },
+  proofAvatar: {
+    width: 24, height: 24, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 1.5, borderColor: "rgba(255,255,255,0.5)",
+  },
+  proofAvatarText: { fontSize: 8, color: "#fff" },
+  socialProofText: { fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: "500" },
+
+  // ── Scroll
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
+
+  sectionLabel: {
+    fontSize: 10, fontWeight: "700", color: "#9CA3AF",
+    letterSpacing: 1.2, marginBottom: 12,
+  },
+
+  // ── Featured Plan Card
+  featuredPlanWrap: { marginBottom: 8, borderRadius: 20, overflow: "hidden" },
+  featuredPlanGradient: { borderRadius: 20, padding: 18 },
+  featuredBadge: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.9)",
+    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+    marginBottom: 12,
+  },
+  featuredBadgeText: { fontSize: 9, fontWeight: "800", color: "#F43F8F", letterSpacing: 0.5 },
+  featuredPlanRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  featuredPlanLeft: { flex: 1 },
+  featuredPlanName: { fontSize: 16, fontWeight: "700", color: "#fff", marginBottom: 4 },
+  featuredPlanTrial: { fontSize: 11, color: "rgba(255,255,255,0.9)", fontWeight: "600", marginBottom: 2 },
+  featuredPlanSub: { fontSize: 11, color: "rgba(255,255,255,0.7)" },
+  featuredPlanRight: { alignItems: "flex-end" },
+  featuredPlanPrice: { fontSize: 28, fontWeight: "800", color: "#fff", lineHeight: 30 },
+  featuredPlanPeriod: { fontSize: 11, color: "rgba(255,255,255,0.75)", marginTop: 1 },
+  featuredPlanPerMonth: { fontSize: 10, color: "rgba(255,255,255,0.6)", marginTop: 2 },
+
+  // ── Regular Plan Cards
+  planCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: "#F3F4F6",
+    position: "relative",
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  planCardSelected: { borderColor: "#F472B6", backgroundColor: "#FFF8FC" },
+  planBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2,
+    marginBottom: 8,
+  },
+  planBadgeActive: { backgroundColor: "#FFF0F8" },
+  planBadgeText: { fontSize: 9, fontWeight: "700", color: "#9CA3AF", letterSpacing: 0.5 },
+  planBadgeTextActive: { color: "#F472B6" },
+  planRow: { flexDirection: "row", alignItems: "flex-start", paddingRight: 32 },
   planLeft: { flex: 1 },
-  planLabel: {
-    fontSize: FontSize.base,
-    fontWeight: "600",
-    color: Colors.gray700,
-  },
-  planLabelSelected: { color: Colors.gray900 },
-  planSub: { fontSize: FontSize.xs, color: Colors.gray400, marginTop: 2 },
-  planTrial: {
-    fontSize: FontSize.xs,
-    color: Colors.rose400,
-    fontWeight: "600",
-    marginTop: 4,
-  },
+  planName: { fontSize: 14, fontWeight: "600", color: "#6B7280", marginBottom: 2 },
+  planNameSelected: { color: "#1F2937" },
+  planTrial: { fontSize: 10, color: "#9CA3AF", fontWeight: "600", marginBottom: 2 },
+  planSub: { fontSize: 10, color: "#9CA3AF" },
   planRight: { alignItems: "flex-end" },
-  planPrice: {
-    fontSize: FontSize.xl,
-    fontWeight: "800",
-    color: Colors.gray600,
+  planPrice: { fontSize: 20, fontWeight: "800", color: "#1F2937" },
+  planPriceSelected: { color: "#F472B6" },
+  planPeriod: { fontSize: 10, color: "#9CA3AF", marginTop: 1 },
+
+  radio: {
+    position: "absolute", right: 14, top: "50%",
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 2, borderColor: "#D1D5DB",
+    alignItems: "center", justifyContent: "center",
   },
-  planPriceSelected: { color: Colors.rose400 },
-  planPeriod: {
-    fontSize: 10,
-    color: Colors.gray400,
-    marginTop: 2,
-    textAlign: "right",
+  radioSelected: { borderColor: "#F472B6" },
+  radioDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#F472B6" },
+
+  // ── Features Card
+  featuresCard: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 20,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+  },
+  featureRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    paddingVertical: 10,
+  },
+  featureDivider: { borderBottomWidth: 1, borderBottomColor: "#FFF0F8" },
+  featureIconWrap: {
+    width: 40, height: 40,
+    borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0, position: "relative",
+  },
+  featureEmoji: { fontSize: 18 },
+  featureDot: {
+    position: "absolute", top: 4, right: 4,
+    width: 6, height: 6, borderRadius: 3,
+  },
+  featureTextWrap: { flex: 1 },
+  featureTitle: { fontSize: 13, fontWeight: "600", color: "#1F2937", marginBottom: 2 },
+  featureSub: { fontSize: 10, color: "#9CA3AF", lineHeight: 14 },
+  featureCheck: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
   },
 
-  planRadio: {
-    position: "absolute",
-    right: 14,
-    top: "50%",
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: Colors.gray200,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  planRadioSelected: { borderColor: Colors.rose400 },
-  planRadioDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.rose400,
-  },
-
-  // CTA
-  ctaWrapper: { marginTop: Spacing.md, marginBottom: Spacing.lg },
+  // ── CTA
+  ctaWrap: { marginBottom: 20 },
   ctaBtn: {
-    borderRadius: Radius.full,
-    paddingVertical: 16,
-    alignItems: "center",
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: 10,
+    borderRadius: 100,
+    paddingVertical: 17,
+    marginBottom: 10,
+    shadowColor: "#F43F8F",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  ctaText: {
-    fontSize: FontSize.base,
-    fontWeight: "800",
-    color: "#fff",
-    letterSpacing: 0.3,
-  },
-  ctaSub: { fontSize: 11, color: "rgba(255,255,255,0.7)", marginTop: 4 },
+  ctaText: { fontSize: 15, fontWeight: "800", color: "#fff", letterSpacing: 0.2 },
+  ctaArrow: { fontSize: 16, color: "#fff", fontWeight: "700" },
+  ctaDisclaimer: { fontSize: 10, color: "#9CA3AF", textAlign: "center", lineHeight: 15 },
 
-  // Legal
-  legal: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: Spacing.md,
+  // ── Legal
+  legalRow: {
+    flexDirection: "row", justifyContent: "center",
+    alignItems: "center", gap: 8, marginBottom: 10,
   },
-  legalLink: { fontSize: 12, color: Colors.gray400 },
-  legalDot: { fontSize: 12, color: Colors.gray300 },
-  disclaimer: {
-    fontSize: 10,
-    color: Colors.gray300,
-    textAlign: "center",
-    lineHeight: 15,
-  },
+  legalLink: { fontSize: 11, color: "#9CA3AF" },
+  legalDot: { fontSize: 11, color: "#D1D5DB" },
+  disclaimer: { fontSize: 10, color: "#C4C9D4", textAlign: "center", lineHeight: 14 },
 });

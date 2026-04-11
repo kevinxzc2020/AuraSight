@@ -245,7 +245,7 @@ function MonthHero({
   const monthPct = Math.round((scannedDaysThisMonth / daysInMonth) * 100);
 
   return (
-    <LinearGradient colors={["#1a0a14", "#0d0d1a"]} style={st.hero}>
+    <LinearGradient colors={["#F43F8F", "#F472B6", "#FB9FBD"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={st.hero}>
       {/* 本月进度环 + 天数 */}
       <View style={st.heroLeft}>
         <View style={st.heroRingWrapper}>
@@ -387,7 +387,7 @@ export default function HistoryScreen() {
   if (loading) {
     return (
       <LinearGradient
-        colors={["#fff5f5", "#ffffff"]}
+        colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
         style={st.loadingContainer}
       >
         <ActivityIndicator size="large" color={Colors.rose400} />
@@ -398,8 +398,8 @@ export default function HistoryScreen() {
   const cellW = (width - Spacing.xl * 2 - Spacing.lg * 2) / 7;
 
   return (
-    <LinearGradient colors={["#fff5f5", "#ffffff"]} style={st.container}>
-      <SafeAreaView style={st.safeArea}>
+    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
+      <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={st.scroll}
@@ -622,7 +622,7 @@ const st = StyleSheet.create({
   container: { flex: 1 },
   safeArea: { flex: 1 },
   loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
-  scroll: { paddingBottom: Spacing.xxl },
+  scroll: { paddingBottom: Spacing.xxl, paddingTop: Spacing.sm },
 
   // 标题行
   titleRow: {
@@ -632,7 +632,7 @@ const st = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
     marginBottom: Spacing.md,
   },
-  pageTitle: { fontSize: 28, fontWeight: "800", color: Colors.gray800 },
+  pageTitle: { fontSize: 28, fontWeight: "800", color: "#1F2937", letterSpacing: -0.5 },
   filterPill: {
     flexDirection: "row",
     backgroundColor: "#fff0f6",
@@ -651,12 +651,17 @@ const st = StyleSheet.create({
   // Hero 卡片
   hero: {
     marginHorizontal: Spacing.xl,
-    borderRadius: 20,
+    borderRadius: 24,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.lg,
+    shadowColor: "#F472B6",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.22,
+    shadowRadius: 20,
+    elevation: 8,
   },
   heroLeft: { alignItems: "center", gap: 6 },
   heroRingWrapper: {
@@ -671,7 +676,7 @@ const st = StyleSheet.create({
     height: 72,
     borderRadius: 36,
     borderWidth: 6,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(255,255,255,0.25)",
   },
   heroRingCenter: { alignItems: "center" },
   heroRingNum: {
@@ -696,13 +701,13 @@ const st = StyleSheet.create({
   heroStatVal: { fontSize: 22, fontWeight: "800", color: "#fff" },
   heroStatLabel: {
     fontSize: 9,
-    color: "rgba(255,255,255,0.45)",
+    color: "rgba(255,255,255,0.75)",
     textAlign: "center",
   },
   heroStatDivider: {
     width: 1,
     height: 28,
-    backgroundColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.25)",
   },
 
   // 卡片通用
@@ -712,6 +717,11 @@ const st = StyleSheet.create({
     padding: Spacing.lg,
     marginHorizontal: Spacing.xl,
     marginBottom: Spacing.lg,
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    elevation: 3,
   },
 
   // 日历
