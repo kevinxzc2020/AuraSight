@@ -34,9 +34,14 @@ function pointsCollection() {
   return db.collection("points");
 }
 
-function calcSkinStatus(totalCount) {
-  if (totalCount === 0) return "clear";
-  if (totalCount <= 5) return "mild";
+function calcSkinStatus(detections) {
+  const total = (detections ?? []).length;
+  if (total === 0) return "clear";
+  const scabCount = (detections ?? []).filter(d => d.acne_type === "scab").length;
+  const activeCount = total - scabCount;
+  // Mostly scabs and few active = healing/recovering
+  if (scabCount >= 1 && scabCount >= activeCount && activeCount <= 3) return "healing";
+  if (total <= 5) return "mild";
   return "breakout";
 }
 
@@ -240,7 +245,7 @@ app.post("/scans", async (req, res) => {
       image_uri: image_uri ?? null,
       notes: notes ?? null,
       total_count: (detections ?? []).length,
-      skin_status: calcSkinStatus((detections ?? []).length),
+      skin_status: calcSkinStatus(detections ?? []),
       skin_score: calcSkinScore(detections ?? []),
       created_at: new Date(),
     };
@@ -723,6 +728,397 @@ app.get("/insights/:userId/weekly", async (req, res) => {
       insight_text: generateInsightText(thisWeek, lastWeek, streak),
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── AI Routes (Claude) ───────────────────────────────────────
+const Anthropic = require("@anthropic-ai/sdk");
+
+function getAnthropicClient() {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || key === "your_key_here") throw new Error("ANTHROPIC_API_KEY not configured");
+  return new Anthropic.default({ apiKey: key });
+}
+
+// ─── Roboflow helper ─────────────────────────────────────────
+async function detectWithRoboflow(image_base64) {
+  const apiKey = process.env.ROBOFLOW_API_KEY;
+  const model   = process.env.ROBOFLOW_MODEL; // e.g. "acne-detection-v1-kf14t/1"
+  if (!apiKey || !model || apiKey === "your_roboflow_key_here") return null;
+
+  try {
+    const url = `https://detect.roboflow.com/${model}?api_key=${apiKey}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: image_base64,
+    });
+    if (!response.ok) throw new Error(`Roboflow HTTP ${response.status}`);
+    const data = await response.json();
+    if (!data.predictions || !data.image) return null;
+
+    const { width: imgW, height: imgH } = data.image;
+    // Normalise to 0-1 bbox format, filter low confidence
+    return data.predictions
+      .filter(p => p.confidence >= 0.35)
+      .map(p => ({
+        acne_type: "redness",          // placeholder — Claude will classify below
+        confidence: Math.round(p.confidence * 100) / 100,
+        bbox: {
+          cx: p.x / imgW,
+          cy: p.y / imgH,
+          w:  p.width  / imgW,
+          h:  p.height / imgH,
+        },
+      }));
+  } catch (e) {
+    console.warn("⚠️  Roboflow error:", e.message);
+    return null;
+  }
+}
+
+// POST /ai/analyze — Hybrid: Roboflow for positions + Claude for classification & analysis
+app.post("/ai/analyze", async (req, res) => {
+  try {
+    const { image_base64, media_type = "image/jpeg" } = req.body;
+    if (!image_base64) return res.status(400).json({ error: "image_base64 required" });
+
+    // ── Step 1: try Roboflow for accurate bbox positions ──────
+    const roboflowBoxes = await detectWithRoboflow(image_base64);
+    // Only use Roboflow path if it returned at least 1 detection
+    const useRoboflow = Array.isArray(roboflowBoxes) && roboflowBoxes.length > 0;
+    console.log(
+      roboflowBoxes === null
+        ? "ℹ️  Roboflow not configured — Claude doing full analysis"
+        : roboflowBoxes.length === 0
+          ? "ℹ️  Roboflow: no detections — Claude doing full analysis"
+          : `✅ Roboflow: ${roboflowBoxes.length} detections`
+    );
+
+    // ── Step 2: Claude for classification + text analysis ─────
+    const anthropic = getAnthropicClient();
+    const message = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 2048,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type, data: image_base64 },
+          },
+          {
+            type: "text",
+            text: useRoboflow
+              ? buildRoboflowClassifyPrompt(roboflowBoxes)
+              : buildFullDetectionPrompt(),
+          },
+        ],
+      }],
+    });
+
+    const raw = message.content[0].text.trim();
+    const json = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "");
+    const claudeResult = JSON.parse(json);
+
+    // ── Step 3: merge Roboflow positions with Claude classifications ──
+    let finalResult;
+    if (useRoboflow) {
+      const classifications = claudeResult.classifications ?? [];
+      const detections = roboflowBoxes.map((box, i) => ({
+        ...box,
+        acne_type: classifications[i] ?? "redness",
+      }));
+      const breakdown = { pustule: 0, redness: 0, broken: 0, scab: 0 };
+      detections.forEach(d => { if (breakdown[d.acne_type] !== undefined) breakdown[d.acne_type]++; });
+      finalResult = {
+        detections,
+        summary:        claudeResult.summary,
+        severity:       claudeResult.severity,
+        acne_breakdown: breakdown,
+        positive:       claudeResult.positive,
+        tips:           claudeResult.tips,
+      };
+    } else {
+      finalResult = claudeResult;
+    }
+
+    res.json(finalResult);
+  } catch (err) {
+    console.error("AI analyze error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Prompt builders ─────────────────────────────────────────
+
+function buildRoboflowClassifyPrompt(boxes) {
+  const spotList = boxes.map((b, i) =>
+    `Spot ${i + 1}: center (${b.bbox.cx.toFixed(3)}, ${b.bbox.cy.toFixed(3)}), size ${(b.bbox.w * 100).toFixed(1)}% × ${(b.bbox.h * 100).toFixed(1)}% of image, confidence ${(b.confidence * 100).toFixed(0)}%`
+  ).join("\n");
+
+  return `You are AuraSight's senior skin consultant. A computer vision model has detected ${boxes.length} acne lesion(s) in this skin photo at these positions:
+
+${spotList}
+
+Your tasks:
+1. For each spot, look at that location in the image and classify it as one of: pustule | redness | broken | scab
+   - pustule: raised pimple with white/yellow pus head
+   - redness: inflamed raised papule, no head yet
+   - broken: open/picked spot, blackhead, disrupted skin
+   - scab: healing crust or dry scab
+2. Write a warm, honest 2-3 sentence skin assessment as a professional esthetician speaking directly to the client.
+3. Rate overall severity: clear | mild | moderate | severe
+4. Give one specific genuine positive observation about this person's skin.
+5. Give 3 specific actionable skincare tips tailored to what you see.
+
+Return ONLY valid JSON (no markdown, no extra text):
+{
+  "classifications": ["pustule", "redness", ...],
+  "summary": "...",
+  "severity": "clear" | "mild" | "moderate" | "severe",
+  "positive": "...",
+  "tips": ["...", "...", "..."]
+}`;
+}
+
+function buildFullDetectionPrompt() {
+  return `You are AuraSight's senior AI skin consultant — combining the precision of a licensed esthetician with the warmth of a trusted beauty advisor. You have 10+ years of experience analyzing skin conditions and crafting personalized skincare routines for clients of all skin types and tones.
+
+Your role: examine this skin photo the way you would during a professional facial consultation. You notice everything — the texture, the tone, the active breakouts, the healing spots — and you speak to your client with honesty and encouragement.
+
+---
+
+## STEP 1: SCAN THE IMAGE SYSTEMATICALLY
+Divide the face/skin into zones and check each one: forehead, temples, nose, cheeks (left & right), chin, jawline, and neck if visible. Do not miss lesions at the edges of the frame.
+
+## STEP 2: CLASSIFY EACH LESION
+For every lesion you find, assign one of these four types based on what you see:
+
+- **pustule** — A raised pimple with a visible white or yellow pus-filled head, surrounded by inflamed red skin. These are active, infected breakouts that need gentle treatment.
+- **redness** — A clearly raised or palpably inflamed papule without a white head. Must be a DISTINCT, localized raised bump — not general skin flushing, not facial warmth, not skin undertone, not lighting variation. Only mark redness if it is a clear isolated lesion that stands out from surrounding skin.
+- **broken** — An open lesion: a popped pimple, a picked spot, a blackhead (open comedone), or any area where the skin barrier is visibly disrupted. These are highest priority for healing.
+- **scab** — A healing lesion covered by a dry crust or scab. The skin is recovering but the lesion is still raised or textured (not a flat post-acne mark).
+
+## STEP 3: MARK PRECISE BOUNDING BOXES
+For each lesion, draw a tight box around just that lesion:
+- cx, cy = the exact center point (0.0 = left/top edge, 1.0 = right/bottom edge)
+- w, h = the width and height of just that lesion
+- Typical lesion size: w and h between 0.02 and 0.12
+- Large inflamed areas (cystic acne, wide redness zones): up to 0.20 max
+- Each individual lesion gets its OWN entry — do not group multiple spots into one box
+- If two lesions overlap, still mark each one separately
+
+## STEP 4: CONFIDENCE LEVELS
+Only include a detection if you are at least 70% confident it is a real lesion:
+- 0.90–1.0: Unmistakably clear lesion
+- 0.70–0.89: Very likely, clearly visible
+- Below 0.70: Skip — do not include uncertain or borderline detections
+
+## CRITICAL RULE — BE CONSERVATIVE
+It is far better to UNDER-report than to OVER-report. A professional esthetician would never flag 10+ spots on a face with only 1–2 real pimples. If you are not sure, skip it. Ask yourself: "Would I point this out to a client sitting in my chair?" If not, do not include it.
+
+For redness specifically: general skin warmth, flushing, pink skin tone, lighting reflections, and post-acne flat marks are NOT redness lesions. Only mark redness if it is a clearly raised, inflamed, isolated bump — distinct from the surrounding skin.
+
+## WHAT AN ESTHETICIAN WOULD IGNORE
+Skip these — they are not acne lesions:
+- Normal pores and skin texture
+- General skin redness or warmth (not a specific raised bump)
+- Skin undertones or natural flush
+- Freckles, moles, beauty marks (unless actively inflamed)
+- Shadows from lighting or facial contours
+- Hair follicles or peach fuzz
+- Flat post-acne hyperpigmentation (fully healed, flush with skin)
+- Makeup, filters, or digital artifacts
+- Any area where you are less than 70% confident
+
+## SEVERITY ASSESSMENT
+- "clear" — No active lesions. Skin is calm and balanced.
+- "mild" — 1 to 5 lesions. Mostly non-inflamed. Manageable with a gentle routine.
+- "moderate" — 6 to 15 lesions. A mix of types. Needs a targeted treatment plan.
+- "severe" — 16+ lesions, or multiple pustules/broken lesions present. Recommend professional consultation.
+
+---
+
+## OUTPUT
+Return ONLY valid JSON. No markdown, no explanation, no code fences. Speak in the summary, positive, and tips fields as a warm, professional beauty consultant would to a real client:
+
+{
+  "detections": [
+    {
+      "acne_type": "pustule" | "broken" | "redness" | "scab",
+      "confidence": <0.50 to 1.0>,
+      "bbox": { "cx": <0.0-1.0>, "cy": <0.0-1.0>, "w": <0.02-0.20>, "h": <0.02-0.20> }
+    }
+  ],
+  "summary": "<2–3 sentences. Describe what you see like a consultant speaking directly to the client: mention the types of lesions, where they are concentrated, and the overall skin condition. Be honest but never harsh.>",
+  "severity": "clear" | "mild" | "moderate" | "severe",
+  "acne_breakdown": {
+    "pustule": <integer count>,
+    "redness": <integer count>,
+    "broken": <integer count>,
+    "scab": <integer count>
+  },
+  "positive": "<One specific, genuine compliment about something good you observe in this skin — texture, tone, hydration, improvement area. Be specific to what you actually see, not generic praise.>",
+  "tips": [
+    "<Tip 1: Address the most urgent lesion type found. Give a specific, actionable product recommendation or technique — e.g. 'Apply a salicylic acid spot treatment to the active pustules on your chin before bed'>",
+    "<Tip 2: A skincare routine adjustment relevant to this severity and skin condition>",
+    "<Tip 3: A lifestyle, diet, or prevention tip that specifically addresses the pattern of breakouts you observed>"
+  ]
+}
+
+If the image is too blurry, too dark, not a close-up of skin, or the face is not clearly visible, return detections:[] with severity:"clear" and use the summary field to kindly let the user know the photo quality needs improvement for an accurate reading.`;
+}
+
+// POST /ai/report/:userId — 根据30天数据生成个性化AI报告
+app.post("/ai/report/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const scans = await db.collection("scans")
+      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
+      .sort({ scan_date: 1 })
+      .toArray();
+
+    if (scans.length === 0) {
+      return res.json({ report: "Not enough data yet. Complete at least a few scans to generate your personalized report." });
+    }
+
+    const scores = scans.map(s => s.skin_score ?? 100);
+    const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    const firstScore = scores[0];
+    const lastScore = scores[scores.length - 1];
+    const spotCounts = scans.map(s => s.total_count ?? 0);
+    const avgSpots = (spotCounts.reduce((a, b) => a + b, 0) / spotCounts.length).toFixed(1);
+    const breakdown = scans.reduce((acc, s) => {
+      (s.detections ?? []).forEach(d => { acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1; });
+      return acc;
+    }, {});
+
+    const anthropic = getAnthropicClient();
+    const message = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 1500,
+      messages: [{
+        role: "user",
+        content: `You are AuraSight's AI dermatology consultant writing a personalized 30-day skin progress report.
+
+User's data:
+- Total scans: ${scans.length} over 30 days
+- Average skin score: ${avgScore}/100
+- Starting score: ${firstScore}, Latest score: ${lastScore}
+- Average spots per scan: ${avgSpots}
+- Acne type breakdown: ${JSON.stringify(breakdown)}
+- Trend: ${lastScore > firstScore ? "IMPROVING" : lastScore < firstScore ? "DECLINING" : "STABLE"}
+
+Write a warm, honest, personalized report with these sections:
+1. **Overall Progress** (2-3 sentences about their journey)
+2. **What's Working** (1-2 specific positives based on the data)
+3. **Areas to Focus** (1-2 honest observations)
+4. **Next 30 Days** (3 specific, actionable recommendations)
+5. **Encouragement** (1 motivating closing sentence)
+
+Keep the tone like a friendly dermatologist — professional but warm. Use the actual numbers. No generic advice.`,
+      }],
+    });
+
+    res.json({ report: message.content[0].text, generated_at: new Date().toISOString(), scan_count: scans.length });
+  } catch (err) {
+    console.error("AI report error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /ai/advice/:userId — 生成今日个性化护肤建议
+app.post("/ai/advice/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+
+    const recentScans = await db.collection("scans")
+      .find({ user_id: userId })
+      .sort({ scan_date: -1 })
+      .limit(7)
+      .toArray();
+
+    const pts = await db.collection("points").findOne({ user_id: userId });
+    const streak = pts?.streak ?? 0;
+
+    const latestScan = recentScans[0];
+    const latestScore = latestScan?.skin_score ?? null;
+    const latestSpots = latestScan?.total_count ?? 0;
+    const latestStatus = latestScan?.skin_status ?? "unknown";
+
+    const anthropic = getAnthropicClient();
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 300,
+      messages: [{
+        role: "user",
+        content: `You are AuraSight's AI skin coach. Generate today's personalized skincare advice.
+
+User's current status:
+- Latest skin score: ${latestScore ?? "no scan yet"}
+- Current spots: ${latestSpots}
+- Skin status: ${latestStatus}
+- Streak: ${streak} days
+- Recent scan count: ${recentScans.length}
+
+Write ONE short, specific, actionable piece of advice (2-3 sentences max) for today.
+Be specific to their actual skin condition. Start directly with the advice, no preamble.
+Tone: warm coach, not medical.`,
+      }],
+    });
+
+    res.json({ advice: message.content[0].text, generated_at: new Date().toISOString() });
+  } catch (err) {
+    console.error("AI advice error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /ai/chat — AI皮肤顾问对话
+app.post("/ai/chat", async (req, res) => {
+  try {
+    const { messages, userId } = req.body;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages array required" });
+    }
+
+    // Fetch user context
+    let userContext = "";
+    if (userId) {
+      try {
+        const db = client.db(process.env.DB_NAME);
+        const latestScan = await db.collection("scans")
+          .find({ user_id: userId }).sort({ scan_date: -1 }).limit(1).toArray();
+        const pts = await db.collection("points").findOne({ user_id: userId });
+        if (latestScan[0]) {
+          userContext = `\nUser's latest scan: score ${latestScan[0].skin_score}, ${latestScan[0].total_count} spots, status: ${latestScan[0].skin_status}. Streak: ${pts?.streak ?? 0} days.`;
+        }
+      } catch {}
+    }
+
+    const anthropic = getAnthropicClient();
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 600,
+      system: `You are AuraSight's AI skin consultant — a friendly, knowledgeable dermatology assistant.
+You help users understand their skin condition, interpret scan results, and give evidence-based skincare advice.
+Keep responses concise (2-3 short paragraphs max), warm, practical, and actionable.
+Never diagnose medical conditions — always recommend seeing a dermatologist for serious concerns.
+${userContext}`,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+    });
+
+    res.json({ reply: response.content[0].text });
+  } catch (err) {
+    console.error("AI chat error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

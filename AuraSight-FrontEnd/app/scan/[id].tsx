@@ -36,6 +36,7 @@ import {
   StatusColors,
 } from "../../constants/theme";
 import { getRecentScans, ScanRecord } from "../../lib/mongodb";
+import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const { width } = Dimensions.get("window");
@@ -253,14 +254,24 @@ export default function ScanDetailScreen() {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {/* 照片 */}
+            {/* 照片 — 如果有AI detections则显示标注 */}
             <View style={styles.imageContainer}>
               {scan.image_uri ? (
-                <Image
-                  source={{ uri: scan.image_uri }}
-                  style={styles.image}
-                  resizeMode="cover"
-                />
+                scan.detections?.length > 0 ? (
+                  <AnnotatedSkinImage
+                    imageUri={scan.image_uri}
+                    detections={scan.detections}
+                    displayWidth={width - Spacing.xl * 2}
+                    displayHeight={(width - Spacing.xl * 2) * 0.85}
+                    borderRadius={0}
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: scan.image_uri }}
+                    style={styles.image}
+                    resizeMode="cover"
+                  />
+                )
               ) : (
                 <LinearGradient
                   colors={["#ffe4e6", "#fce7f3"]}
@@ -279,6 +290,11 @@ export default function ScanDetailScreen() {
                   {scan.skin_status.toUpperCase()}
                 </Text>
               </View>
+              {scan.detections?.length > 0 && (
+                <View style={styles.annotatedBadge}>
+                  <Text style={styles.annotatedBadgeText}>🤖 AI Annotated</Text>
+                </View>
+              )}
             </View>
 
             {/* 日期 + 部位 */}
@@ -470,9 +486,11 @@ export default function ScanDetailScreen() {
               <Text style={styles.insightText}>
                 {scan.total_count === 0
                   ? "Your skin looks clear! Keep up your skincare routine."
-                  : scan.skin_status === "mild"
-                    ? "Mild breakout detected. Consider gentle cleansing and staying hydrated."
-                    : "Active breakout detected. Avoid touching your face and consider spot treatment."}
+                  : scan.skin_status === "healing"
+                    ? "Your skin is healing well. Keep it moisturized and avoid picking scabs to prevent scarring."
+                    : scan.skin_status === "mild"
+                      ? "Mild breakout detected. Consider gentle cleansing and staying hydrated."
+                      : "Active breakout detected. Avoid touching your face and consider spot treatment."}
               </Text>
             </LinearGradient>
           </ScrollView>
@@ -523,13 +541,23 @@ const styles = StyleSheet.create({
     borderRadius: Radius.xxl,
     overflow: "hidden",
   },
-  image: { width: "100%", height: width * 0.75 },
+  image: { width: "100%", height: width * 0.85 },
   imagePlaceholder: {
     width: "100%",
-    height: width * 0.75,
+    height: width * 0.85,
     alignItems: "center",
     justifyContent: "center",
   },
+  annotatedBadge: {
+    position: "absolute",
+    bottom: 10,
+    left: 10,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  annotatedBadgeText: { color: "#fff", fontSize: 11, fontWeight: "600" },
   placeholderEmoji: { fontSize: 80 },
   statusBadge: {
     position: "absolute",

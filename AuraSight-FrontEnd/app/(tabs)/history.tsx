@@ -354,6 +354,19 @@ export default function HistoryScreen() {
     "default",
     { month: "long" },
   );
+  const todayStr = now.toISOString().split("T")[0];
+
+  // Build calendar as explicit week rows — avoids flexWrap alignment bugs
+  const calendarWeeks: (number | null)[][] = [];
+  let cWeek: (number | null)[] = Array(startDay).fill(null);
+  for (let day = 1; day <= daysInMonth; day++) {
+    cWeek.push(day);
+    if (cWeek.length === 7) { calendarWeeks.push(cWeek); cWeek = []; }
+  }
+  if (cWeek.length > 0) {
+    while (cWeek.length < 7) cWeek.push(null);
+    calendarWeeks.push(cWeek);
+  }
 
   function prevMonth() {
     if (currentMonth === 0) {
@@ -395,7 +408,10 @@ export default function HistoryScreen() {
     );
   }
 
-  const cellW = (width - Spacing.xl * 2 - Spacing.lg * 2) / 7;
+  // Card has marginHorizontal:20 + padding:16 on each side → inner width = width - 72
+  const calInnerW = width - Spacing.xl * 2 - Spacing.lg * 2;
+  const cellW = calInnerW / 7;
+  const cellSize = Math.floor(cellW); // cell height = cell width → square cells
 
   return (
     <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
@@ -459,97 +475,73 @@ export default function HistoryScreen() {
 
             {/* 星期标题行 */}
             <View style={st.weekRow}>
-              {WEEKDAYS.map((d, i) => (
-                <Text key={i} style={[st.weekDay, { width: cellW }]}>
-                  {d}
-                </Text>
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
+                <Text key={i} style={[st.weekDay, { width: cellW }]}>{d}</Text>
               ))}
             </View>
 
-            {/* 日历格子 — 核心升级：有扫描的天显示分数数字而不是小圆点 */}
+            {/* 日历格子 — 逐行渲染，避免 flexWrap 错位 */}
             <View style={st.calendarGrid}>
-              {Array.from({ length: startDay }).map((_, i) => (
-                <View
-                  key={`empty-${i}`}
-                  style={[st.dayCell, { width: cellW }]}
-                />
-              ))}
-              {Array.from({ length: daysInMonth }).map((_, i) => {
-                const day = i + 1;
-                const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-                const scan = scanMap[dateStr];
-                const isToday = dateStr === now.toISOString().split("T")[0];
-                const score = scan?.skin_score;
-
-                // 根据皮肤分数决定颜色：90+绿，70-89黄，70以下红
-                const scoreColor =
-                  score == null
-                    ? null
-                    : score >= 90
-                      ? Colors.emerald
-                      : score >= 70
-                        ? "#f59e0b"
-                        : Colors.rose400;
-
-                return (
-                  <TouchableOpacity
-                    key={day}
-                    style={[st.dayCell, { width: cellW }]}
-                    onPress={() =>
-                      scan && router.push(`/scan/${scan._id}` as any)
+              {calendarWeeks.map((week, wi) => (
+                <View key={wi} style={st.weekRow2}>
+                  {week.map((day, di) => {
+                    if (day === null) {
+                      return <View key={`e-${di}`} style={{ width: cellW, height: cellSize }} />;
                     }
-                    activeOpacity={scan ? 0.7 : 1}
-                    disabled={!scan}
-                  >
-                    {/* 日期数字 */}
-                    <View
-                      style={[
-                        st.dayNumWrapper,
-                        isToday && st.todayWrapper,
-                        scan &&
-                          !isToday && {
-                            backgroundColor: (scoreColor ?? "#888888") + "20",
-                          },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          st.dayNum,
-                          isToday && st.todayNum,
-                          scan &&
-                            !isToday && {
-                              color: scoreColor ?? undefined,
-                              fontWeight: "700",
-                            },
-                        ]}
-                      >
-                        {day}
-                      </Text>
-                    </View>
+                    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                    const scan = scanMap[dateStr];
+                    const isToday = dateStr === todayStr;
+                    const score = scan?.skin_score;
+                    const isFuture = dateStr > todayStr;
 
-                    {/* 有扫描时：显示分数（而不是小圆点） */}
-                    {scan && score != null && (
-                      <Text
-                        style={[
-                          st.dayScore,
-                          { color: scoreColor ?? undefined },
-                        ]}
+                    const scoreColor =
+                      score == null ? null
+                      : score >= 90 ? Colors.emerald
+                      : score >= 70 ? "#F59E0B"
+                      : Colors.rose400;
+
+                    return (
+                      <TouchableOpacity
+                        key={day}
+                        style={[st.dayCell, { width: cellW, height: cellSize }]}
+                        onPress={() => scan && router.push(`/scan/${scan._id}` as any)}
+                        activeOpacity={scan ? 0.65 : 1}
+                        disabled={!scan}
                       >
-                        {score}
-                      </Text>
-                    )}
-                    {/* 有扫描但没有分数时：显示小圆点作为后备 */}
-                    {scan && score == null && (
-                      <View
-                        style={[
-                          st.statusDot,
-                          { backgroundColor: StatusColors[scan.skin_status] },
-                        ]}
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+                        {/* Scanned day: filled tinted background */}
+                        {scan && !isToday && (
+                          <View style={[st.scanBg, { backgroundColor: (scoreColor ?? "#aaa") + "22" }]} />
+                        )}
+
+                        {/* Day number circle */}
+                        <View style={[
+                          st.dayNumWrapper,
+                          isToday && st.todayWrapper,
+                        ]}>
+                          <Text style={[
+                            st.dayNum,
+                            isToday && st.todayNum,
+                            isFuture && st.futureNum,
+                            scan && !isToday && { color: scoreColor ?? Colors.gray600, fontWeight: "700" },
+                          ]}>
+                            {day}
+                          </Text>
+                        </View>
+
+                        {/* Score indicator below date */}
+                        {scan && score != null && (
+                          <Text style={[st.dayScore, { color: scoreColor ?? Colors.gray400 }]}>
+                            {score}
+                          </Text>
+                        )}
+                        {scan && score == null && (
+                          <View style={[st.statusDot, { backgroundColor: StatusColors[scan.skin_status] }]} />
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
 
             {/* 图例：保留原来的颜色说明，但精简 */}
@@ -744,29 +736,51 @@ const st = StyleSheet.create({
     fontWeight: "700",
     color: Colors.gray800,
   },
-  weekRow: { flexDirection: "row", marginBottom: Spacing.sm },
+  weekRow: { flexDirection: "row", marginBottom: 4 },
   weekDay: {
     textAlign: "center",
-    fontSize: 11,
+    fontSize: 10,
     color: Colors.gray400,
     fontWeight: "600",
+    paddingVertical: 4,
   },
 
-  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
-  dayCell: { alignItems: "center", paddingVertical: 4 },
-  dayNumWrapper: {
-    width: 26,
-    height: 26,
+  calendarGrid: { gap: 2 },
+  weekRow2: { flexDirection: "row" },
+  dayCell: {
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 13,
+    position: "relative",
+    gap: 1,
   },
-  todayWrapper: { backgroundColor: Colors.rose400 },
+  scanBg: {
+    position: "absolute",
+    top: 3,
+    left: 3,
+    right: 3,
+    bottom: 3,
+    borderRadius: 10,
+  },
+  dayNumWrapper: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+  },
+  todayWrapper: {
+    backgroundColor: Colors.rose400,
+    shadowColor: Colors.rose400,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   dayNum: { fontSize: 12, color: Colors.gray600, fontWeight: "500" },
   todayNum: { color: "#fff", fontWeight: "800" },
-  // 新增：分数数字（在日期数字下方显示）
-  dayScore: { fontSize: 8, fontWeight: "700", marginTop: 1 },
-  statusDot: { width: 5, height: 5, borderRadius: 3, marginTop: 2 },
+  futureNum: { color: Colors.gray300 },
+  dayScore: { fontSize: 9, fontWeight: "700", lineHeight: 10 },
+  statusDot: { width: 5, height: 5, borderRadius: 3 },
 
   legend: {
     flexDirection: "row",

@@ -17,7 +17,7 @@ export type BodyZone =
   | "face_nose"
   | "back"
   | "chest";
-export type SkinStatus = "clear" | "mild" | "breakout";
+export type SkinStatus = "clear" | "mild" | "breakout" | "healing";
 
 export interface Detection {
   acne_type: AcneType;
@@ -89,9 +89,14 @@ async function apiCall<T>(
 
 // ─── 工具函数 ─────────────────────────────────────────────
 
-export function calcSkinStatus(totalCount: number): SkinStatus {
-  if (totalCount === 0) return "clear";
-  if (totalCount <= 5) return "mild";
+export function calcSkinStatus(detections: Detection[]): SkinStatus {
+  const total = detections.length;
+  if (total === 0) return "clear";
+  const scabCount = detections.filter(d => d.acne_type === "scab").length;
+  const activeCount = total - scabCount;
+  // Mostly scabs and few active spots = healing
+  if (scabCount >= 1 && scabCount >= activeCount && activeCount <= 3) return "healing";
+  if (total <= 5) return "mild";
   return "breakout";
 }
 
@@ -130,7 +135,7 @@ export async function saveScan(
     const record: ScanRecord = {
       ...scan,
       total_count: scan.detections.length,
-      skin_status: calcSkinStatus(scan.detections.length),
+      skin_status: calcSkinStatus(scan.detections),
       skin_score: calcSkinScore(scan.detections),
       created_at: new Date().toISOString(),
     };

@@ -105,7 +105,8 @@ export const AcneColors = {
 
 // 皮肤状态颜色（日历用）
 export const StatusColors = {
-  clear: "#34d399",
-  mild: "#fbbf24",
-  breakout: "#fb7185",
+  clear:   "#34d399",  // green
+  mild:    "#fbbf24",  // amber
+  healing: "#a78bfa",  // purple — recovering/scarring
+  breakout:"#fb7185",  // red
 };

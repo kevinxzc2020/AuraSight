@@ -7,6 +7,9 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Modal,
+  ScrollView,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -28,12 +31,21 @@ import {
   Radius,
   FontSize,
 } from "../../constants/theme";
-import { saveScan, BodyZone, Detection } from "../../lib/mongodb";
+import { saveScan, BodyZone, Detection, AcneType } from "../../lib/mongodb";
+import { analyzeImage, AnalyzeResult } from "../../lib/ai";
+import { AnnotatedSkinImage, TYPE_COLOR, TYPE_LABEL } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
+
+const TYPE_DESC: Record<AcneType, string> = {
+  pustule:  "White/yellow pus-filled pimple",
+  redness:  "Red inflamed area, no white head",
+  broken:   "Picked or burst pimple, open wound",
+  scab:     "Healing crust or dry scab",
+};
 
 // 底部抽屉固定高度
 const DRAWER_H_FACE = 170;
@@ -95,6 +107,18 @@ export default function CameraScreen() {
   const [saving, setSaving] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
+  // Preview + AI analysis state
+  const [analyzing, setAnalyzing] = useState(false);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AnalyzeResult | null>(null);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+
+  // Edit mode state
+  const [editMode, setEditMode] = useState(false);
+  const [editableDetections, setEditableDetections] = useState<Detection[]>([]);
+  const [pendingAddPos, setPendingAddPos] = useState<{ cx: number; cy: number } | null>(null);
+  const [undoStack, setUndoStack] = useState<Detection[][]>([]);
+
   const cameraRef = useRef<CameraView>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -135,9 +159,9 @@ export default function CameraScreen() {
     }, 1000);
   }
 
-  // ─── 立即拍照 ─────────────────────────────────────────
+  // ─── 拍照 → AI分析 → 预览 ────────────────────────────
   async function handleCapture() {
-    if (!cameraRef.current || saving) return;
+    if (!cameraRef.current || saving || analyzing) return;
     try {
       setSaving(true);
       const photo = await cameraRef.current.takePictureAsync({
@@ -148,7 +172,6 @@ export default function CameraScreen() {
       if (!photo) throw new Error("No photo taken");
 
       let finalUri = photo.uri;
-      // 前置摄像头自动水平翻转，让保存的照片方向正确
       if (facing === "front") {
         const flipped = await ImageManipulator.manipulateAsync(
           photo.uri,
@@ -157,10 +180,26 @@ export default function CameraScreen() {
         );
         finalUri = flipped.uri;
       }
-      await handleSave(finalUri);
+      setSaving(false);
+
+      // Show preview immediately, then analyze
+      setPreviewUri(finalUri);
+      setAnalyzing(true);
+      try {
+        const resized = await ImageManipulator.manipulateAsync(
+          finalUri,
+          [{ resize: { width: 512 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        const result = await analyzeImage(resized.base64 ?? "", "image/jpeg");
+        setAiResult(result);
+      } catch {
+        setAiResult(null); // analysis failed — still allow saving
+      } finally {
+        setAnalyzing(false);
+      }
     } catch {
       Alert.alert("Error", "Failed to take photo. Please try again.");
-    } finally {
       setSaving(false);
     }
   }
@@ -177,25 +216,44 @@ export default function CameraScreen() {
       quality: 0.85,
     });
     if (!result.canceled && result.assets[0]) {
-      setSaving(true);
-      await handleSave(result.assets[0].uri);
-      setSaving(false);
+      const uri = result.assets[0].uri;
+      setPreviewUri(uri);
+      setAnalyzing(true);
+      try {
+        const resized = await ImageManipulator.manipulateAsync(
+          uri,
+          [{ resize: { width: 512 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+        const aiRes = await analyzeImage(resized.base64 ?? "", "image/jpeg");
+        setAiResult(aiRes);
+      } catch {
+        setAiResult(null);
+      } finally {
+        setAnalyzing(false);
+      }
     }
   }
 
-  // ─── 保存 + 积分 ──────────────────────────────────────
-  async function handleSave(imageUri: string) {
+  // ─── 确认保存（从预览页调用）────────────────────────
+  async function handleConfirmSave() {
+    if (!previewUri) return;
+    setSaving(true);
     try {
       const userId = await getUserId();
+      // aiResult.detections always has the latest (edits are synced back on Done)
+      const detections = (aiResult?.detections ?? []) as Detection[];
+
       await saveScan({
         user_id: userId,
         scan_date: new Date().toISOString(),
         body_zone: activeZone,
-        image_uri: imageUri,
-        detections: [] as Detection[],
+        image_uri: previewUri,
+        detections,
+        notes: aiResult?.summary ?? "",
       });
-      const taskType =
-        activeZone === "back" || activeZone === "chest" ? "body" : "face";
+
+      const taskType = activeZone === "back" || activeZone === "chest" ? "body" : "face";
       const ptsRes = await fetch(`${API_URL}/points/${userId}/task`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,22 +261,50 @@ export default function CameraScreen() {
       }).then((r) => r.json());
 
       const earned = ptsRes.points_earned ?? 0;
+      // Close preview
+      setPreviewUri(null);
+      setAiResult(null);
+
       Alert.alert(
-        earned === 0 ? "✅ Already Done!" : `🎉 +${earned} pts earned!`,
+        earned === 0 ? "✅ Already Done!" : `🎉 +${earned} pts!`,
         earned === 0
-          ? "You already completed this task today. Come back tomorrow!"
-          : `${taskType === "face" ? "Face" : "Body"} scan saved!${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
+          ? "You already completed this task today."
+          : `Scan saved!${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
         [
-          {
-            text: "View History",
-            onPress: () => router.push("/(tabs)/history"),
-          },
+          { text: "View History", onPress: () => router.push("/(tabs)/history") },
           { text: "OK", style: "cancel" },
         ],
       );
     } catch {
       Alert.alert("Error", "Failed to save scan. Please try again.");
+    } finally {
+      setSaving(false);
     }
+  }
+
+  // Push current detections to undo stack before a change
+  function pushUndo(current: Detection[]) {
+    setUndoStack(prev => [...prev.slice(-9), [...current]]);
+  }
+
+  function handleUndo() {
+    setUndoStack(prev => {
+      if (prev.length === 0) return prev;
+      const restored = prev[prev.length - 1];
+      setEditableDetections(restored);
+      return prev.slice(0, -1);
+    });
+  }
+
+  function handleRetake() {
+    setPreviewUri(null);
+    setAiResult(null);
+    setAnalyzing(false);
+    setShowAnnotations(true);
+    setEditMode(false);
+    setEditableDetections([]);
+    setPendingAddPos(null);
+    setUndoStack([]);
   }
 
   // ─── 权限页面 ─────────────────────────────────────────
@@ -243,6 +329,7 @@ export default function CameraScreen() {
   }
 
   return (
+    <>
     <View style={styles.container}>
       {/* 카메라 영역 — flex:1 로 나머지 공간을 모두 채웁니다 */}
       <View style={styles.cameraWrapper}>
@@ -326,7 +413,7 @@ export default function CameraScreen() {
                 {countdown !== null
                   ? `Hold still... ${countdown}`
                   : mode === "face"
-                    ? "Tap ⏱ for auto-shoot · tap 📷 for instant"
+                    ? "👓 Remove glasses · Tap ⏱ auto-shoot · tap 📷 instant"
                     : "Step back for full body view"}
               </Text>
             </View>
@@ -430,6 +517,238 @@ export default function CameraScreen() {
         {saving && <Text style={styles.savingText}>Saving your scan...</Text>}
       </View>
     </View>
+
+    {/* ── AI Analysis Preview Modal ── */}
+    <Modal
+      visible={!!previewUri}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={handleRetake}
+    >
+      <View style={styles.previewModal}>
+        {/* Header */}
+        <View style={styles.previewHeader}>
+          <TouchableOpacity onPress={handleRetake} style={styles.previewBack}>
+            <Text style={styles.previewBackText}>✕ Retake</Text>
+          </TouchableOpacity>
+          <Text style={styles.previewTitle}>Scan Preview</Text>
+          {/* Edit controls */}
+          {!analyzing && aiResult && (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              {/* Undo — only in edit mode */}
+              {editMode && (
+                <TouchableOpacity
+                  style={[styles.undoBtn, undoStack.length === 0 && styles.undoBtnDisabled]}
+                  onPress={handleUndo}
+                  disabled={undoStack.length === 0}
+                >
+                  <Text style={[styles.undoBtnText, undoStack.length === 0 && styles.undoBtnTextDisabled]}>
+                    ↩︎
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {/* Edit / Done toggle */}
+              <TouchableOpacity
+                style={[styles.editToggleBtn, editMode && styles.editToggleBtnActive]}
+                onPress={() => {
+                  if (!editMode) {
+                    setEditableDetections([...(aiResult?.detections ?? [])]);
+                    setUndoStack([]);
+                    setShowAnnotations(true);
+                  } else {
+                    setAiResult(prev => prev ? { ...prev, detections: editableDetections } : prev);
+                    setUndoStack([]);
+                  }
+                  setEditMode(v => !v);
+                }}
+              >
+                <Text style={[styles.editToggleBtnText, editMode && styles.editToggleBtnTextActive]}>
+                  {editMode ? "✓ Done" : "✏️ Edit"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {!aiResult && <View style={{ width: 70 }} />}
+        </View>
+
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.previewScroll}
+          scrollEnabled={!editMode}
+        >
+          {/* Annotated image */}
+          {previewUri && (
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => {
+                if (editMode || analyzing) return;
+                setShowAnnotations(v => !v);
+              }}
+              style={styles.previewImageWrap}
+            >
+              <AnnotatedSkinImage
+                imageUri={previewUri}
+                detections={
+                  editMode
+                    ? editableDetections
+                    : showAnnotations ? (aiResult?.detections ?? []) : []
+                }
+                displayWidth={width - 32}
+                displayHeight={(width - 32) * 1.1}
+                borderRadius={20}
+                editMode={editMode}
+                onDeleteDetection={(idx) => {
+                  pushUndo(editableDetections);
+                  setEditableDetections(prev => prev.filter((_, i) => i !== idx));
+                }}
+                onAddAtPosition={(cx, cy) => {
+                  setPendingAddPos({ cx, cy });
+                }}
+              />
+
+              {/* Analyzing overlay */}
+              {analyzing && (
+                <View style={styles.analyzingOverlay}>
+                  <ActivityIndicator size="large" color="#fff" />
+                  <Text style={styles.analyzingText}>AI analyzing spots...</Text>
+                </View>
+              )}
+
+              {/* Toggle hint — only in view mode */}
+              {!analyzing && !editMode && aiResult && aiResult.detections.length > 0 && (
+                <View style={styles.toggleHint}>
+                  <Text style={styles.toggleHintText}>
+                    {showAnnotations ? "👁 Tap to hide marks" : "👁 Tap to show marks"}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {/* ── Type Picker Modal (Add new box) ── */}
+          <Modal
+            visible={!!pendingAddPos}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setPendingAddPos(null)}
+          >
+            <Pressable style={styles.typePickerBackdrop} onPress={() => setPendingAddPos(null)}>
+              <View style={styles.typePickerSheet}>
+                <Text style={styles.typePickerTitle}>What type of spot?</Text>
+                <Text style={styles.typePickerSub}>Select the acne type to add at this location</Text>
+                {(["pustule", "redness", "broken", "scab"] as AcneType[]).map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.typePickerRow, { borderLeftColor: TYPE_COLOR[type] }]}
+                    onPress={() => {
+                      if (!pendingAddPos) return;
+                      pushUndo(editableDetections);
+                      const newDet: Detection = {
+                        acne_type: type,
+                        confidence: 1.0,
+                        bbox: { cx: pendingAddPos.cx, cy: pendingAddPos.cy, w: 0.08, h: 0.08 },
+                      };
+                      setEditableDetections(prev => [...prev, newDet]);
+                      setPendingAddPos(null);
+                    }}
+                  >
+                    <View style={[styles.typePickerDot, { backgroundColor: TYPE_COLOR[type] }]} />
+                    <View>
+                      <Text style={styles.typePickerLabel}>{TYPE_LABEL[type]}</Text>
+                      <Text style={styles.typePickerDesc}>{TYPE_DESC[type]}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={styles.typePickerCancel} onPress={() => setPendingAddPos(null)}>
+                  <Text style={styles.typePickerCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Modal>
+
+          {/* AI Results */}
+          {!analyzing && aiResult && (
+            <>
+              {/* Summary row */}
+              <View style={styles.previewSummaryRow}>
+                <View style={styles.previewStat}>
+                  <Text style={styles.previewStatNum}>{aiResult.detections.length}</Text>
+                  <Text style={styles.previewStatLbl}>Spots Found</Text>
+                </View>
+                <View style={[styles.previewStat, styles.previewStatMid]}>
+                  <Text style={[styles.previewStatNum, {
+                    color: aiResult.severity === "clear" ? "#10B981"
+                      : aiResult.severity === "mild" ? "#F59E0B"
+                      : aiResult.severity === "moderate" ? "#F97316"
+                      : "#EF4444"
+                  }]}>
+                    {aiResult.severity.charAt(0).toUpperCase() + aiResult.severity.slice(1)}
+                  </Text>
+                  <Text style={styles.previewStatLbl}>Severity</Text>
+                </View>
+                <View style={styles.previewStat}>
+                  <Text style={[styles.previewStatNum, { color: "#F472B6" }]}>
+                    {Math.round((1 - aiResult.detections.reduce((s, d) => s + (1 - d.confidence), 0) / Math.max(aiResult.detections.length, 1)) * 100)}%
+                  </Text>
+                  <Text style={styles.previewStatLbl}>Confidence</Text>
+                </View>
+              </View>
+
+              {/* AI summary */}
+              <View style={styles.previewSummaryCard}>
+                <Text style={styles.previewSummaryTitle}>🤖 AI Assessment</Text>
+                <Text style={styles.previewSummaryText}>{aiResult.summary}</Text>
+                {aiResult.positive ? (
+                  <Text style={styles.previewPositive}>✨ {aiResult.positive}</Text>
+                ) : null}
+              </View>
+
+              {/* Tips */}
+              {aiResult.tips?.length > 0 && (
+                <View style={styles.previewTipsCard}>
+                  <Text style={styles.previewSummaryTitle}>💡 Tips for Today</Text>
+                  {aiResult.tips.map((tip, i) => (
+                    <View key={i} style={styles.previewTipRow}>
+                      <View style={styles.previewTipDot} />
+                      <Text style={styles.previewTipText}>{tip}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+
+          {!analyzing && !aiResult && (
+            <View style={styles.previewNoAI}>
+              <Text style={styles.previewNoAIText}>AI analysis unavailable — scan will be saved without spot detection.</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Save button */}
+        <View style={styles.previewFooter}>
+          <TouchableOpacity
+            onPress={handleConfirmSave}
+            disabled={saving || analyzing}
+            activeOpacity={0.85}
+          >
+            <LinearGradient
+              colors={saving || analyzing ? ["#E5E7EB", "#E5E7EB"] : ["#F43F8F", "#F472B6"]}
+              style={styles.previewSaveBtn}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.previewSaveBtnText}>
+                  {analyzing ? "Analyzing..." : editMode ? `Save (${editableDetections.length} spots)` : "Save Scan"}
+                </Text>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -618,4 +937,153 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     marginTop: Spacing.sm,
   },
+
+  // ── Preview Modal
+  previewModal: { flex: 1, backgroundColor: "#FAFAFA" },
+  previewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F9E0EE",
+    backgroundColor: "#fff",
+  },
+  previewBack: { paddingVertical: 4, paddingHorizontal: 2 },
+  previewBackText: { fontSize: 14, color: "#F43F8F", fontWeight: "600" },
+  previewTitle: { fontSize: 15, fontWeight: "700", color: "#1F2937" },
+  previewScroll: { padding: 16, paddingBottom: 24 },
+  previewImageWrap: { position: "relative", marginBottom: 16, borderRadius: 20, overflow: "hidden" },
+  analyzingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    borderRadius: 20,
+  },
+  analyzingText: { color: "#fff", fontSize: 14, fontWeight: "600" },
+  toggleHint: {
+    position: "absolute",
+    bottom: 10,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  toggleHintText: { color: "#fff", fontSize: 12, fontWeight: "600" },
+
+  // Edit mode
+  editToggleBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "#F43F8F",
+    width: 70,
+    alignItems: "center",
+  },
+  editToggleBtnActive: {
+    backgroundColor: "#F43F8F",
+  },
+  editToggleBtnText: { fontSize: 13, fontWeight: "700", color: "#F43F8F" },
+  editToggleBtnTextActive: { color: "#fff" },
+  undoBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center", justifyContent: "center",
+  },
+  undoBtnDisabled: { backgroundColor: "#F9FAFB" },
+  undoBtnText: { fontSize: 17, color: "#374151" },
+  undoBtnTextDisabled: { color: "#D1D5DB" },
+
+  // Type picker modal
+  typePickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  typePickerSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 36,
+  },
+  typePickerTitle: { fontSize: 17, fontWeight: "800", color: "#1F2937", marginBottom: 4 },
+  typePickerSub: { fontSize: 13, color: "#6B7280", marginBottom: 20 },
+  typePickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderLeftWidth: 4,
+    borderRadius: 10,
+    backgroundColor: "#F9FAFB",
+    marginBottom: 10,
+    gap: 14,
+  },
+  typePickerDot: { width: 14, height: 14, borderRadius: 7 },
+  typePickerLabel: { fontSize: 15, fontWeight: "700", color: "#1F2937" },
+  typePickerDesc: { fontSize: 12, color: "#6B7280", marginTop: 2 },
+  typePickerCancel: { marginTop: 6, alignItems: "center", paddingVertical: 12 },
+  typePickerCancelText: { fontSize: 15, color: "#9CA3AF", fontWeight: "600" },
+  previewSummaryRow: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+  },
+  previewStat: { flex: 1, alignItems: "center" },
+  previewStatMid: { borderLeftWidth: 1, borderRightWidth: 1, borderColor: "#F9E0EE" },
+  previewStatNum: { fontSize: 22, fontWeight: "800", color: "#1F2937", marginBottom: 4 },
+  previewStatLbl: { fontSize: 10, color: "#9CA3AF", fontWeight: "500" },
+  previewSummaryCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+    gap: 8,
+  },
+  previewSummaryTitle: { fontSize: 13, fontWeight: "700", color: "#1F2937" },
+  previewSummaryText: { fontSize: 13, color: "#6B7280", lineHeight: 20 },
+  previewPositive: { fontSize: 12, color: "#10B981", fontWeight: "600" },
+  previewTipsCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+    gap: 10,
+  },
+  previewTipRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  previewTipDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#F472B6", marginTop: 6, flexShrink: 0 },
+  previewTipText: { flex: 1, fontSize: 12, color: "#6B7280", lineHeight: 18 },
+  previewNoAI: { backgroundColor: "#FFF9F0", borderRadius: 14, padding: 14, borderWidth: 1, borderColor: "#FDE68A" },
+  previewNoAIText: { fontSize: 12, color: "#92400E", textAlign: "center" },
+  previewFooter: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#F9E0EE",
+    backgroundColor: "#fff",
+  },
+  previewSaveBtn: {
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#F43F8F",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  previewSaveBtnText: { fontSize: 16, fontWeight: "700", color: "#fff" },
 });
