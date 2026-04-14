@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -35,7 +35,12 @@ import { saveScan, BodyZone, Detection, AcneType } from "../../lib/mongodb";
 import { analyzeImage, AnalyzeResult } from "../../lib/ai";
 import { AnnotatedSkinImage, TYPE_COLOR, TYPE_LABEL } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { canUseAI, consumeAI, getQuotaSummary, WEEKLY_AI_LIMIT } from "../../lib/quota";
+import { useUser } from "../../lib/userContext";
+import { hasConsent, acceptConsent } from "../../lib/consent";
+import { ConsentModal } from "../../components/ConsentModal";
+import { getUserId } from "../../lib/userId";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -59,14 +64,7 @@ const ZONES: { label: string; value: BodyZone }[] = [
   { label: "Nose", value: "face_nose" },
 ];
 
-async function getUserId(): Promise<string> {
-  let id = await AsyncStorage.getItem("@aurasight_user_id");
-  if (!id) {
-    id = "guest_" + Math.random().toString(36).slice(2, 10);
-    await AsyncStorage.setItem("@aurasight_user_id", id);
-  }
-  return id;
-}
+// getUserId 现在从 lib/userId.ts 导入（顶部 import 里）
 
 // ─── 倒计时大数字 ─────────────────────────────────────────
 function CountdownOverlay({ count }: { count: number }) {
@@ -119,8 +117,61 @@ export default function CameraScreen() {
   const [pendingAddPos, setPendingAddPos] = useState<{ cx: number; cy: number } | null>(null);
   const [undoStack, setUndoStack] = useState<Detection[][]>([]);
 
+  // Free-tier / VIP gating
+  const { user, refreshUser } = useUser();
+  const isVIP = user?.mode === "vip";
+
+  // 每次进入相机 tab 都重新拉一次 user mode——
+  // 因为 settings/profile 页可能改了 VIP 状态，要保证 isVIP 是最新的
+  useFocusEffect(
+    useCallback(() => {
+      refreshUser();
+    }, [refreshUser]),
+  );
+  const [aiLocked, setAiLocked] = useState(false); // true when free user hit quota on this photo
+  // consentLocked 和 aiLocked 分开——前者是"用户还没同意数据使用"，后者是"这周
+  // AI 用完了"。两种 UI 应该引导去不同的地方（Settings vs VIP 升级）。
+  const [consentLocked, setConsentLocked] = useState(false);
+  const [quotaRemaining, setQuotaRemaining] = useState<number>(WEEKLY_AI_LIMIT);
+
+  useEffect(() => {
+    getQuotaSummary().then((q) => setQuotaRemaining(q.remaining));
+  }, [user?.mode, previewUri]);
+
   const cameraRef = useRef<CameraView>(null);
   const countdownTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ─── Data-use consent gate ─────────────────────────────
+  // 用户在使用 AI 检测或把照片保存到云端之前，必须先同意我们使用照片做后续训练。
+  // pendingConsentAction 暂存"同意之后要做什么"——同意了就执行；拒绝就丢弃。
+  const [consentVisible, setConsentVisible] = useState(false);
+  const pendingConsentAction = useRef<null | (() => void)>(null);
+
+  /**
+   * 包装任何"需要用户同意才能做的动作"。
+   * 已同意 → 立即执行；未同意 → 弹窗，同意后执行，拒绝后丢弃。
+   */
+  async function requireConsent(action: () => void) {
+    if (await hasConsent()) {
+      action();
+      return;
+    }
+    pendingConsentAction.current = action;
+    setConsentVisible(true);
+  }
+
+  async function onConsentAgree() {
+    await acceptConsent();
+    setConsentVisible(false);
+    const a = pendingConsentAction.current;
+    pendingConsentAction.current = null;
+    if (a) a();
+  }
+
+  function onConsentDecline() {
+    setConsentVisible(false);
+    pendingConsentAction.current = null;
+  }
 
   // 直接用 flex:1 让相机区域填满剩余空间
   // 不再手动计算高度，避免状态栏/安全区域计算误差
@@ -182,25 +233,54 @@ export default function CameraScreen() {
       }
       setSaving(false);
 
-      // Show preview immediately, then analyze
+      // Show preview immediately
       setPreviewUri(finalUri);
-      setAnalyzing(true);
-      try {
-        const resized = await ImageManipulator.manipulateAsync(
-          finalUri,
-          [{ resize: { width: 512 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-        );
-        const result = await analyzeImage(resized.base64 ?? "", "image/jpeg");
-        setAiResult(result);
-      } catch {
-        setAiResult(null); // analysis failed — still allow saving
-      } finally {
+      setAiResult(null);
+
+      // 数据使用同意——没同意之前不能跑 AI（也不能把图片送到云端）
+      const consented = await hasConsent();
+      if (!consented) {
+        setConsentLocked(true);
         setAnalyzing(false);
+        // 弹窗征求同意；同意后用同一张照片继续跑 AI
+        requireConsent(() => runAiOn(finalUri));
+        return;
       }
+
+      await runAiOn(finalUri);
     } catch {
       Alert.alert("Error", "Failed to take photo. Please try again.");
       setSaving(false);
+    }
+  }
+
+  // 对给定图片 URI 跑 AI 分析——假定用户已同意数据使用条款。
+  async function runAiOn(uri: string) {
+    // Gate by VIP / weekly quota
+    const allowed = await canUseAI(isVIP);
+    if (!allowed) {
+      setAiLocked(true);
+      setAnalyzing(false);
+      return;
+    }
+    setAiLocked(false);
+    setConsentLocked(false);
+    setAnalyzing(true);
+    try {
+      const resized = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 512 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      const result = await analyzeImage(resized.base64 ?? "", "image/jpeg");
+      setAiResult(result);
+      await consumeAI(isVIP);
+      const q = await getQuotaSummary();
+      setQuotaRemaining(q.remaining);
+    } catch {
+      setAiResult(null); // analysis failed — still allow saving
+    } finally {
+      setAnalyzing(false);
     }
   }
 
@@ -218,26 +298,30 @@ export default function CameraScreen() {
     if (!result.canceled && result.assets[0]) {
       const uri = result.assets[0].uri;
       setPreviewUri(uri);
-      setAnalyzing(true);
-      try {
-        const resized = await ImageManipulator.manipulateAsync(
-          uri,
-          [{ resize: { width: 512 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-        );
-        const aiRes = await analyzeImage(resized.base64 ?? "", "image/jpeg");
-        setAiResult(aiRes);
-      } catch {
-        setAiResult(null);
-      } finally {
-        setAnalyzing(false);
+      setAiResult(null);
+
+      // 未同意数据使用条款 → 不跑 AI，弹窗征求同意
+      const consented = await hasConsent();
+      if (!consented) {
+        setConsentLocked(true);
+        requireConsent(() => runAiOn(uri));
+        return;
       }
+      await runAiOn(uri);
     }
   }
 
   // ─── 确认保存（从预览页调用）────────────────────────
   async function handleConfirmSave() {
     if (!previewUri) return;
+    // 保存到云端 = 把照片送到后台；必须先拿到用户的数据使用同意
+    if (!(await hasConsent())) {
+      requireConsent(() => {
+        // 用户同意后重新触发保存流程
+        handleConfirmSave();
+      });
+      return;
+    }
     setSaving(true);
     try {
       const userId = await getUserId();
@@ -305,6 +389,8 @@ export default function CameraScreen() {
     setEditableDetections([]);
     setPendingAddPos(null);
     setUndoStack([]);
+    setAiLocked(false);
+    setConsentLocked(false);
   }
 
   // ─── 权限页面 ─────────────────────────────────────────
@@ -344,16 +430,8 @@ export default function CameraScreen() {
         <View style={StyleSheet.absoluteFillObject}>
           {/* 顶部控件 */}
           <SafeAreaView style={styles.topControls}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => {
-                if (countdownTimer.current)
-                  clearInterval(countdownTimer.current);
-                router.back();
-              }}
-            >
-              <X size={20} color="#fff" />
-            </TouchableOpacity>
+            {/* 占位——保持 mode toggle 居中（已用 tab bar 切换页面，不再需要 X 关闭按钮） */}
+            <View style={styles.iconButtonSpacer} />
 
             <View style={styles.modeToggle}>
               {(["face", "body"] as const).map((m) => (
@@ -718,7 +796,64 @@ export default function CameraScreen() {
             </>
           )}
 
-          {!analyzing && !aiResult && (
+          {/* 用户拒绝 / 从未同意数据使用条款——引导去 Settings 打开开关 */}
+          {!analyzing && !aiResult && consentLocked && (
+            <View style={styles.paywallCard}>
+              <Text style={styles.paywallEmoji}>🛡️</Text>
+              <Text style={styles.paywallTitle}>Photo data use is off</Text>
+              <Text style={styles.paywallSub}>
+                AI detection needs your permission to analyze photos.{"\n"}
+                Enable it in Settings → Privacy → Allow photo data use.
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => router.push("/settings")}
+                style={styles.paywallCTAShadow}
+              >
+                <LinearGradient
+                  colors={["#F472B6", "#EC4899"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.paywallCTA}
+                >
+                  <Text style={styles.paywallCTAText}>Open Settings</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <Text style={styles.paywallHint}>
+                Or tap Save to keep the photo locally without AI analysis.
+              </Text>
+            </View>
+          )}
+
+          {!analyzing && !aiResult && aiLocked && !consentLocked && !isVIP && (
+            <View style={styles.paywallCard}>
+              <Text style={styles.paywallEmoji}>🔒</Text>
+              <Text style={styles.paywallTitle}>AI detection used for this week</Text>
+              <Text style={styles.paywallSub}>
+                Free plan includes {WEEKLY_AI_LIMIT} AI scan per week.{"\n"}
+                Upgrade to VIP for unlimited detection & tracking.
+              </Text>
+              <TouchableOpacity
+                activeOpacity={0.88}
+                onPress={() => router.push("/vip")}
+                style={styles.paywallCTAShadow}
+              >
+                <LinearGradient
+                  colors={["#b77cff", "#ff5e8e"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.paywallCTA}
+                >
+                  <Text style={styles.paywallCTAText}>Upgrade to VIP</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+              <Text style={styles.paywallHint}>
+                Or tap Save to keep the photo without detection.
+              </Text>
+            </View>
+          )}
+
+          {!analyzing && !aiResult && !aiLocked && !consentLocked && (
             <View style={styles.previewNoAI}>
               <Text style={styles.previewNoAIText}>AI analysis unavailable — scan will be saved without spot detection.</Text>
             </View>
@@ -748,6 +883,13 @@ export default function CameraScreen() {
         </View>
       </View>
     </Modal>
+
+    {/* Data-use consent — 首次使用 AI / 上传云端前弹窗 */}
+    <ConsentModal
+      visible={consentVisible}
+      onAgree={onConsentAgree}
+      onDecline={onConsentDecline}
+    />
     </>
   );
 }
@@ -803,6 +945,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   iconButtonActive: { backgroundColor: "rgba(244,114,182,0.5)" },
+  iconButtonSpacer: { width: 42, height: 42 },
   modeToggle: {
     flexDirection: "row",
     gap: 2,
@@ -1068,6 +1211,50 @@ const styles = StyleSheet.create({
   previewTipText: { flex: 1, fontSize: 12, color: "#6B7280", lineHeight: 18 },
   previewNoAI: { backgroundColor: "#FFF9F0", borderRadius: 14, padding: 14, borderWidth: 1, borderColor: "#FDE68A" },
   previewNoAIText: { fontSize: 12, color: "#92400E", textAlign: "center" },
+
+  // Paywall card on preview screen
+  paywallCard: {
+    backgroundColor: "rgba(246,240,255,0.85)",
+    borderRadius: 20,
+    padding: 20,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(183,124,255,0.3)",
+  },
+  paywallEmoji: { fontSize: 32, marginBottom: 8 },
+  paywallTitle: { fontSize: 16, fontWeight: "800", color: "#1A1530", marginBottom: 6, textAlign: "center" },
+  paywallSub: { fontSize: 13, color: "#5D566F", textAlign: "center", lineHeight: 19, marginBottom: 16 },
+  paywallCTAShadow: {
+    width: "100%",
+    shadowColor: "#b77cff",
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  paywallCTA: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: "center",
+  },
+  paywallCTAText: { color: "#fff", fontWeight: "800", fontSize: 15, letterSpacing: 0.3 },
+  paywallHint: { fontSize: 11, color: "#8B839C", marginTop: 10 },
+
+  // Quota pill shown when preview opens
+  quotaPill: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(183,124,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(183,124,255,0.25)",
+    marginBottom: 10,
+  },
+  quotaPillText: { fontSize: 11, fontWeight: "700", color: "#7c4dff", letterSpacing: 0.3 },
   previewFooter: {
     padding: 16,
     borderTopWidth: 1,

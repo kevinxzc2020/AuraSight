@@ -24,7 +24,10 @@ import {
   Star,
   BookOpen,
   Check,
+  Sparkles,
+  Lock,
 } from "lucide-react-native";
+import { useUser } from "../../lib/userContext";
 import {
   Colors,
   Gradients,
@@ -38,18 +41,10 @@ import {
 import { getRecentScans, ScanRecord } from "../../lib/mongodb";
 import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getUserId } from "../../lib/userId";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
-
-async function getUserId(): Promise<string> {
-  let id = await AsyncStorage.getItem("@aurasight_user_id");
-  if (!id) {
-    id = "guest_" + Math.random().toString(36).slice(2, 10);
-    await AsyncStorage.setItem("@aurasight_user_id", id);
-  }
-  return id;
-}
 
 const ZONE_LABELS: Record<string, string> = {
   face_forehead: "Forehead",
@@ -78,6 +73,8 @@ const DIARY_TAGS = [
 
 export default function ScanDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user } = useUser();
+  const isVIP = user?.mode === "vip";
   const [scan, setScan] = useState<ScanRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
@@ -254,10 +251,10 @@ export default function ScanDetailScreen() {
             contentContainerStyle={styles.scrollContent}
             keyboardShouldPersistTaps="handled"
           >
-            {/* 照片 — 如果有AI detections则显示标注 */}
+            {/* 照片 — 如果有AI detections且用户是VIP则显示标注 */}
             <View style={styles.imageContainer}>
               {scan.image_uri ? (
-                scan.detections?.length > 0 ? (
+                isVIP && scan.detections?.length > 0 ? (
                   <AnnotatedSkinImage
                     imageUri={scan.image_uri}
                     detections={scan.detections}
@@ -280,17 +277,19 @@ export default function ScanDetailScreen() {
                   <Text style={styles.placeholderEmoji}>👤</Text>
                 </LinearGradient>
               )}
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: StatusColors[scan.skin_status] },
-                ]}
-              >
-                <Text style={styles.statusBadgeText}>
-                  {scan.skin_status.toUpperCase()}
-                </Text>
-              </View>
-              {scan.detections?.length > 0 && (
+              {isVIP && (
+                <View
+                  style={[
+                    styles.statusBadge,
+                    { backgroundColor: StatusColors[scan.skin_status] },
+                  ]}
+                >
+                  <Text style={styles.statusBadgeText}>
+                    {scan.skin_status.toUpperCase()}
+                  </Text>
+                </View>
+              )}
+              {isVIP && scan.detections?.length > 0 && (
                 <View style={styles.annotatedBadge}>
                   <Text style={styles.annotatedBadgeText}>🤖 AI Annotated</Text>
                 </View>
@@ -313,7 +312,36 @@ export default function ScanDetailScreen() {
               </View>
             </View>
 
-            {/* 皮肤评分 */}
+            {/* AI 分析 paywall — 免费用户 */}
+            {!isVIP && (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() => router.push("/vip")}
+                style={[styles.card, Shadow.card, styles.aiPaywallCard]}
+              >
+                <View style={styles.aiPaywallIconWrap}>
+                  <Lock size={20} color={Colors.rose400} />
+                </View>
+                <Text style={styles.aiPaywallTitle}>AI analysis locked</Text>
+                <Text style={styles.aiPaywallSub}>
+                  Upgrade to VIP to see your skin score, spot breakdown, and AI
+                  annotations on this photo.
+                </Text>
+                <LinearGradient
+                  colors={Gradients.roseMain}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.aiPaywallCTA}
+                >
+                  <Sparkles size={14} color="#fff" />
+                  <Text style={styles.aiPaywallCTAText}>Unlock with VIP</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            )}
+
+            {/* 皮肤评分 — 仅 VIP */}
+            {isVIP && (
+            <>
             <View style={[styles.card, Shadow.card]}>
               <Text style={styles.cardTitle}>Skin Score</Text>
               <View style={styles.scoreRow}>
@@ -375,6 +403,8 @@ export default function ScanDetailScreen() {
                   })}
                 </View>
               </View>
+            )}
+            </>
             )}
 
             {/* ─── 皮肤日记 ─────────────────────────────────────────────
@@ -471,7 +501,8 @@ export default function ScanDetailScreen() {
               )}
             </View>
 
-            {/* AI 建议（占位，Phase 4 接真实 AI） */}
+            {/* AI 建议（占位，Phase 4 接真实 AI） — 仅 VIP */}
+            {isVIP && (
             <LinearGradient
               colors={["#fff0f6", "#fff5f5"]}
               style={[
@@ -493,6 +524,7 @@ export default function ScanDetailScreen() {
                       : "Active breakout detected. Avoid touching your face and consider spot treatment."}
               </Text>
             </LinearGradient>
+            )}
           </ScrollView>
         </SafeAreaView>
       </LinearGradient>
@@ -721,4 +753,44 @@ const styles = StyleSheet.create({
     color: Colors.rose600,
   },
   insightText: { fontSize: FontSize.sm, color: Colors.gray600, lineHeight: 20 },
+
+  // AI paywall card (free users)
+  aiPaywallCard: {
+    alignItems: "center",
+  },
+  aiPaywallIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#fff0f6",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.sm,
+  },
+  aiPaywallTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: Colors.gray800,
+    marginBottom: 4,
+  },
+  aiPaywallSub: {
+    fontSize: FontSize.sm,
+    color: Colors.gray500,
+    textAlign: "center",
+    marginBottom: Spacing.md,
+    lineHeight: 20,
+  },
+  aiPaywallCTA: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+  },
+  aiPaywallCTAText: {
+    color: "#fff",
+    fontSize: FontSize.sm,
+    fontWeight: "700",
+  },
 });

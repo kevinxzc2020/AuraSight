@@ -3,6 +3,8 @@
  * All Claude API calls go through the backend proxy (never expose API key in app)
  */
 
+import { CONSENT_VERSION } from "./consent";
+
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
 export interface AcneDetection {
@@ -38,7 +40,13 @@ export async function analyzeImage(
   const res = await fetch(`${API_URL}/ai/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ image_base64: imageBase64, media_type: mediaType }),
+    // consent_version 告诉后端"客户端已经拿到用户的数据使用同意"；后端用它
+    // 把 /ai/analyze 调用和同意条款版本关联起来。没这个 stamp 后端会拒绝。
+    body: JSON.stringify({
+      image_base64: imageBase64,
+      media_type: mediaType,
+      consent_version: CONSENT_VERSION,
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

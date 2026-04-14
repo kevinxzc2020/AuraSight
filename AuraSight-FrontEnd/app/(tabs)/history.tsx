@@ -13,7 +13,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Polyline, Circle, Line, Text as SvgText } from "react-native-svg";
-import { ChevronLeft, ChevronRight, Flame, Camera } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, Flame, Camera, Lock, Sparkles } from "lucide-react-native";
+import { useUser } from "../../lib/userContext";
 import {
   Colors,
   Gradients,
@@ -32,19 +33,11 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { SwipeableScanCard } from "../../components/SwipeableScanCard";
+import { getUserId } from "../../lib/userId";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
-
-async function getUserId(): Promise<string> {
-  let id = await AsyncStorage.getItem("@aurasight_user_id");
-  if (!id) {
-    id = "guest_" + Math.random().toString(36).slice(2, 10);
-    await AsyncStorage.setItem("@aurasight_user_id", id);
-  }
-  return id;
-}
 
 // ─── 折线图组件 ───────────────────────────────────────────
 // 用皮肤分数（而不是扫描次数）画趋势折线，更能体现"是否在变好"
@@ -211,11 +204,13 @@ function MonthHero({
   stats,
   currentYear,
   currentMonth,
+  isVIP,
 }: {
   scans: ScanRecord[];
   stats: StatsResult | null;
   currentYear: number;
   currentMonth: number;
+  isVIP: boolean;
 }) {
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
@@ -271,7 +266,11 @@ function MonthHero({
       {/* 右侧统计数字 */}
       <View style={st.heroRight}>
         <View style={st.heroStat}>
-          <Text style={st.heroStatVal}>{avgScore ?? "—"}</Text>
+          {isVIP ? (
+            <Text style={st.heroStatVal}>{avgScore ?? "—"}</Text>
+          ) : (
+            <Lock size={18} color="#fff" style={{ marginBottom: 2 }} />
+          )}
           <Text style={st.heroStatLabel}>Avg score</Text>
         </View>
         <View style={st.heroStatDivider} />
@@ -291,6 +290,8 @@ function MonthHero({
 
 // ─── 主页面 ───────────────────────────────────────────────
 export default function HistoryScreen() {
+  const { user } = useUser();
+  const isVIP = user?.mode === "vip";
   const [activeFilter, setActiveFilter] = useState("All");
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [stats, setStats] = useState<StatsResult | null>(null);
@@ -456,6 +457,7 @@ export default function HistoryScreen() {
             stats={stats}
             currentYear={currentYear}
             currentMonth={currentMonth}
+            isVIP={isVIP}
           />
 
           {/* ── 日历卡片 ── */}
@@ -495,7 +497,8 @@ export default function HistoryScreen() {
                     const isFuture = dateStr > todayStr;
 
                     const scoreColor =
-                      score == null ? null
+                      !isVIP ? Colors.rose300
+                      : score == null ? null
                       : score >= 90 ? Colors.emerald
                       : score >= 70 ? "#F59E0B"
                       : Colors.rose400;
@@ -528,14 +531,17 @@ export default function HistoryScreen() {
                           </Text>
                         </View>
 
-                        {/* Score indicator below date */}
-                        {scan && score != null && (
+                        {/* Score indicator below date — only for VIP */}
+                        {scan && isVIP && score != null && (
                           <Text style={[st.dayScore, { color: scoreColor ?? Colors.gray400 }]}>
                             {score}
                           </Text>
                         )}
-                        {scan && score == null && (
+                        {scan && isVIP && score == null && (
                           <View style={[st.statusDot, { backgroundColor: StatusColors[scan.skin_status] }]} />
+                        )}
+                        {scan && !isVIP && (
+                          <View style={[st.statusDot, { backgroundColor: Colors.rose300 }]} />
                         )}
                       </TouchableOpacity>
                     );
@@ -566,10 +572,36 @@ export default function HistoryScreen() {
             </View>
           </View>
 
-          {/* ── 皮肤分数折线图 ── */}
-          <View style={[st.card, Shadow.card]}>
-            <SkinScoreLineChart scans={scans} />
-          </View>
+          {/* ── 皮肤分数折线图 (VIP only) ── */}
+          {isVIP ? (
+            <View style={[st.card, Shadow.card]}>
+              <SkinScoreLineChart scans={scans} />
+            </View>
+          ) : (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => router.push("/vip")}
+              style={[st.card, Shadow.card, st.paywallChart]}
+            >
+              <View style={st.paywallChartIcon}>
+                <Sparkles size={22} color={Colors.rose400} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={st.paywallChartTitle}>Unlock your skin trend</Text>
+                <Text style={st.paywallChartSub}>
+                  Get AI scoring and a weekly progress chart with VIP.
+                </Text>
+              </View>
+              <LinearGradient
+                colors={Gradients.roseMain}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={st.paywallChartCTA}
+              >
+                <Text style={st.paywallChartCTAText}>Upgrade</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          )}
 
           {/* ── 最近扫描记录 ── */}
           <Text style={st.sectionTitle}>Recent Scans</Text>
@@ -599,6 +631,7 @@ export default function HistoryScreen() {
                   key={scan._id ?? `scan-${i}`}
                   scan={scan}
                   onDelete={handleDelete}
+                  isVIP={isVIP}
                 />
               ))}
             </View>
@@ -867,4 +900,39 @@ const st = StyleSheet.create({
     borderRadius: Radius.full,
   },
   emptyBtnText: { color: "#fff", fontSize: FontSize.sm, fontWeight: "700" },
+
+  // Paywall chart teaser (free users)
+  paywallChart: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  paywallChartIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#fff0f6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paywallChartTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  paywallChartSub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    marginTop: 2,
+  },
+  paywallChartCTA: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.full,
+  },
+  paywallChartCTAText: {
+    color: "#fff",
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+  },
 });

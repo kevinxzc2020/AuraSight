@@ -44,6 +44,7 @@ import {
 } from "../../constants/theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, router } from "expo-router";
+import { getUserId } from "../../lib/userId";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -73,14 +74,7 @@ interface ReportData {
   date_range: { from: string; to: string } | null;
 }
 
-async function getUserId(): Promise<string> {
-  let id = await AsyncStorage.getItem("@aurasight_user_id");
-  if (!id) {
-    id = "guest_" + Math.random().toString(36).slice(2, 10);
-    await AsyncStorage.setItem("@aurasight_user_id", id);
-  }
-  return id;
-}
+// getUserId: 从 lib/userId.ts 导入（登录用户返回账号 id，游客返回本地 guest id）
 
 // ─── 规则引擎：根据数据生成有温度的总结语 ────────────────
 // 这是免费版的"AI感"核心：用规则生成个性化文字，让用户感受到被关注

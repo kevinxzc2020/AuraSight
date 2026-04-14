@@ -17,6 +17,7 @@ import { router } from "expo-router";
 import { ChevronLeft, Send, Sparkles } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { sendChatMessage, ChatMessage } from "../lib/ai";
+import { getUserId } from "../lib/userId";
 import { Colors, Spacing, FontSize, Radius } from "../constants/theme";
 
 const SUGGESTED = [
@@ -83,9 +84,8 @@ export default function ChatScreen() {
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem("@aurasight_user_id").then((id) => {
-      if (id) setUserId(id);
-    });
+    // 用集中版 getUserId——登录后拿账号 id，未登录拿 guest id
+    getUserId().then((id) => setUserId(id));
   }, []);
 
   async function handleSend(text?: string) {

@@ -14,6 +14,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { ChevronLeft, Check, Sparkles, Crown, Star } from "lucide-react-native";
 import { Colors, Gradients, Spacing, Radius, FontSize } from "../constants/theme";
+import { useUser } from "../lib/userContext";
 
 const { width } = Dimensions.get("window");
 
@@ -66,10 +67,14 @@ const PLANS = [
 export default function VIPScreen() {
   const [selected, setSelected] = useState("annual");
   const selectedPlan = PLANS.find((p) => p.id === selected)!;
+  const { user, setUser } = useUser();
 
   async function handleSubscribe() {
-    // 模拟购买成功 → 写入 VIP 身份
+    // 模拟购买成功 → 写入 VIP 身份（同步到 UserContext + legacy 键）
     await AsyncStorage.setItem("@aurasight_user_mode", "vip");
+    if (user) {
+      await setUser({ ...user, mode: "vip" });
+    }
     Alert.alert(
       "🎉 Welcome to VIP!",
       "Your account has been upgraded. Enjoy unlimited access.",

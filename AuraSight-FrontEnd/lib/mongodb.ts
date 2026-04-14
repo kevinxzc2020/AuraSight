@@ -5,6 +5,7 @@
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { CONSENT_VERSION } from "./consent";
 
 // ─── 类型定义 ──────────────────────────────────────────────
 
@@ -126,7 +127,13 @@ export async function saveScan(
   >,
 ): Promise<ScanRecord> {
   try {
-    const record = await apiCall<ScanRecord>("POST", "/scans", scan);
+    // 把 consent_version 一并发到后端——让后端在数据库里冻结用户签的是哪
+    // 个版本的条款。camera.tsx 在调用 saveScan 之前已经 gated 过 hasConsent，
+    // 这里只是把那一刻的版本号随记录一起持久化，方便事后审计。
+    const record = await apiCall<ScanRecord>("POST", "/scans", {
+      ...scan,
+      consent_version: CONSENT_VERSION,
+    });
     await _updateLocalCache(record);
     console.log("✅ Scan saved:", record._id);
     return record;

@@ -30,9 +30,10 @@ const { width } = Dimensions.get("window");
 interface Props {
   scan: ScanRecord;
   onDelete: (id: string) => void;
+  isVIP?: boolean;
 }
 
-export function SwipeableScanCard({ scan, onDelete }: Props) {
+export function SwipeableScanCard({ scan, onDelete, isVIP = true }: Props) {
   const translateX = useRef(new Animated.Value(0)).current;
   const isOpen = useRef(false);
 
@@ -145,25 +146,37 @@ export function SwipeableScanCard({ scan, onDelete }: Props) {
           )}
           <View style={styles.info}>
             <Text style={styles.date}>{label}</Text>
-            <Text style={styles.count}>
-              {scan.total_count} spots · Score {scan.skin_score}
-            </Text>
+            {isVIP ? (
+              <Text style={styles.count}>
+                {scan.total_count} spots · Score {scan.skin_score}
+              </Text>
+            ) : (
+              <Text style={styles.count}>Photo saved · AI locked</Text>
+            )}
           </View>
-          <View
-            style={[
-              styles.badge,
-              { backgroundColor: StatusColors[scan.skin_status] + "20" },
-            ]}
-          >
-            <Text
+          {isVIP ? (
+            <View
               style={[
-                styles.badgeText,
-                { color: StatusColors[scan.skin_status] },
+                styles.badge,
+                { backgroundColor: StatusColors[scan.skin_status] + "20" },
               ]}
             >
-              {scan.skin_status}
-            </Text>
-          </View>
+              <Text
+                style={[
+                  styles.badgeText,
+                  { color: StatusColors[scan.skin_status] },
+                ]}
+              >
+                {scan.skin_status}
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.badge, { backgroundColor: "#fff0f6" }]}>
+              <Text style={[styles.badgeText, { color: Colors.rose400 }]}>
+                VIP
+              </Text>
+            </View>
+          )}
         </TouchableOpacity>
       </Animated.View>
     </View>

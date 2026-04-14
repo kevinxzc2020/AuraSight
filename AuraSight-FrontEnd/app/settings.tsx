@@ -39,6 +39,10 @@ import {
   Shadow,
 } from "../constants/theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useUser } from "../lib/userContext";
+import { getConsent, acceptConsent, revokeConsentEverywhere } from "../lib/consent";
+import { getUserId } from "../lib/userId";
+import { ShieldCheck } from "lucide-react-native";
 
 const { width } = Dimensions.get("window");
 const APP_VERSION = "1.0.0";
@@ -102,6 +106,7 @@ function Row({
 }
 
 export default function SettingsScreen() {
+  const { user, setUser } = useUser();
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userMode, setUserMode] = useState<"guest" | "registered" | "vip">(
@@ -110,6 +115,8 @@ export default function SettingsScreen() {
   const [reminderOn, setReminderOn] = useState(false);
   const [faceIdOn, setFaceIdOn] = useState(false);
   const [skinGoals, setSkinGoals] = useState<string[]>(["acne"]);
+  const [dataConsentOn, setDataConsentOn] = useState(false);
+  const [consentAcceptedAt, setConsentAcceptedAt] = useState<string | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -129,6 +136,52 @@ export default function SettingsScreen() {
     if (goals) setSkinGoals(JSON.parse(goals));
     setReminderOn(reminder === "true");
     setFaceIdOn(faceId === "true");
+    const consent = await getConsent();
+    setDataConsentOn(consent.accepted);
+    setConsentAcceptedAt(consent.acceptedAt);
+  }
+
+  async function toggleDataConsent(val: boolean) {
+    if (val) {
+      // 打开 = 授予同意。用 Alert 让用户确认一下，条款详情在首次弹窗里已经看过。
+      Alert.alert(
+        "Allow data use",
+        "By turning this on, you allow AuraSight to save your skin photos and use anonymized versions to improve our detection model.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "I agree",
+            onPress: async () => {
+              await acceptConsent();
+              const c = await getConsent();
+              setDataConsentOn(c.accepted);
+              setConsentAcceptedAt(c.acceptedAt);
+            },
+          },
+        ],
+      );
+    } else {
+      // 关闭 = 撤销。撤销之后，新上传不会再被用于训练/云端保存，下次使用会重新弹窗征求同意。
+      Alert.alert(
+        "Revoke data consent?",
+        "We'll stop using new photos for training and cloud save. You can re-enable this any time.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Revoke",
+            style: "destructive",
+            onPress: async () => {
+              // 用集中版 getUserId——登录后拿账号 id，未登录拿 guest id。
+              // 通知后端把该用户历史 scans 的 can_train 置 false。
+              const uid = await getUserId();
+              await revokeConsentEverywhere(uid);
+              setDataConsentOn(false);
+              setConsentAcceptedAt(null);
+            },
+          },
+        ],
+      );
+    }
   }
 
   async function toggleReminder(val: boolean) {
@@ -346,6 +399,26 @@ export default function SettingsScreen() {
             }
           />
           <Row
+            iconBg="#fdf2f8"
+            iconEl={<ShieldCheck size={15} color={Colors.rose400} />}
+            label="Allow photo data use"
+            sub={
+              dataConsentOn
+                ? consentAcceptedAt
+                  ? `Agreed ${new Date(consentAcceptedAt).toLocaleDateString()}`
+                  : "Agreed"
+                : "Needed for AI analysis & cloud save"
+            }
+            rightEl={
+              <Switch
+                value={dataConsentOn}
+                onValueChange={toggleDataConsent}
+                trackColor={{ false: Colors.gray200, true: Colors.rose300 }}
+                thumbColor={dataConsentOn ? Colors.rose400 : "#fff"}
+              />
+            }
+          />
+          <Row
             iconBg="#f0f9ff"
             iconEl={<Shield size={15} color="#3b82f6" />}
             label="Privacy Policy"
@@ -438,7 +511,12 @@ export default function SettingsScreen() {
             sub={`Current: ${userMode}`}
             onPress={async () => {
               const next = userMode === "vip" ? "registered" : "vip";
-              await AsyncStorage.setItem("@aurasight_user_mode", next);
+              // 通过 UserContext.setUser 双写两个 key，保证 useUser() 立刻拿到新 mode
+              if (user) {
+                await setUser({ ...user, mode: next });
+              } else {
+                await AsyncStorage.setItem("@aurasight_user_mode", next);
+              }
               setUserMode(next as any);
               Alert.alert(next === "vip" ? "👑 VIP activated!" : "✓ Switched to Free", `Mode is now: ${next}`);
             }}

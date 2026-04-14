@@ -38,18 +38,10 @@ import { getStats, StatsResult, AcneType } from "../../lib/mongodb";
 import { getDailyAdvice } from "../../lib/ai";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
+import { getUserId } from "../../lib/userId";
 
 const { width, height } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
-
-async function getUserId(): Promise<string> {
-  let id = await AsyncStorage.getItem("@aurasight_user_id");
-  if (!id) {
-    id = "guest_" + Math.random().toString(36).slice(2, 10);
-    await AsyncStorage.setItem("@aurasight_user_id", id);
-  }
-  return id;
-}
 
 function getGreeting(): string {
   const hour = new Date().getHours();

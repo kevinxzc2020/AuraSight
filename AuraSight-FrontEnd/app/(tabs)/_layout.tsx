@@ -1,9 +1,88 @@
-import { Tabs } from "expo-router";
-import { Camera, Clock, FileText, Home, User } from "lucide-react-native";
-import { StyleSheet } from "react-native";
+import { Tabs, router } from "expo-router";
+import { Camera, Clock, FileText, Home, User, Settings } from "lucide-react-native";
+import { useRef } from "react";
+import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Colors } from "../../constants/theme";
-import { Settings } from "lucide-react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Haptics from "expo-haptics";
+import { Colors, Gradients } from "../../constants/theme";
+
+// ─── 普通 tab 图标——带"激活态胶囊"指示 ─────────────────────
+function TabIcon({
+  Icon,
+  focused,
+}: {
+  Icon: React.ComponentType<{ color: string; size: number; strokeWidth?: number }>;
+  focused: boolean;
+}) {
+  return (
+    <View style={styles.tabIconWrap}>
+      {focused && <View style={styles.activePill} />}
+      <Icon
+        color={focused ? Colors.rose400 : Colors.gray400}
+        size={focused ? 22 : 20}
+        strokeWidth={focused ? 2.4 : 2}
+      />
+    </View>
+  );
+}
+
+// ─── 中间相机按钮——按下缩放+渐变圆+白色描边 ─────────────────
+function CameraTabButton() {
+  const scale = useRef(new Animated.Value(1)).current;
+  const insets = useSafeAreaInsets();
+  // tab bar 上下 padding 不对称（top: 8, bottom: insets.bottom + 6），
+  // 用 marginTop 把按钮往下推到屏幕底边和 tab bar 顶边的几何中心
+  const centerOffset = (insets.bottom + 6 - 8) / 2;
+
+  const onIn = () =>
+    Animated.spring(scale, {
+      toValue: 0.9,
+      useNativeDriver: true,
+      speed: 40,
+      bounciness: 0,
+    }).start();
+  const onOut = () =>
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 10,
+    }).start();
+
+  return (
+    <Pressable
+      onPressIn={onIn}
+      onPressOut={onOut}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+        router.push("/(tabs)/camera");
+      }}
+      style={styles.cameraBtnWrap}
+      hitSlop={10}
+    >
+      <Animated.View style={[styles.cameraBtnShadow, { marginTop: centerOffset, transform: [{ scale }] }]}>
+        {/* 光晕底环 */}
+        <View style={styles.cameraHalo} />
+        <LinearGradient
+          colors={["#FF7AB0", "#F472B6", "#EC4899"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.cameraBtn}
+        >
+          {/* 内部高光——给渐变加立体感 */}
+          <LinearGradient
+            colors={["rgba(255,255,255,0.35)", "rgba(255,255,255,0)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.cameraInnerGloss}
+          />
+          <Camera color="#fff" size={22} strokeWidth={2.4} />
+        </LinearGradient>
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
@@ -11,7 +90,7 @@ export default function TabLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: [styles.tabBar, { paddingBottom: insets.bottom + 4 }],
+        tabBarStyle: [styles.tabBar, { paddingBottom: insets.bottom + 6 }],
         tabBarActiveTintColor: Colors.rose400,
         tabBarInactiveTintColor: Colors.gray400,
         tabBarLabelStyle: styles.tabLabel,
@@ -21,54 +100,46 @@ export default function TabLayout() {
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size }) => (
-            <Home color={color} size={size - 2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="camera"
-        options={{
-          title: "Camera",
-          tabBarIcon: ({ color, size }) => (
-            <Camera color={color} size={size - 2} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
           title: "History",
-          tabBarIcon: ({ color, size }) => (
-            <Clock color={color} size={size - 2} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Clock} focused={focused} />,
+        }}
+      />
+      <Tabs.Screen
+        name="camera"
+        options={{
+          title: "",
+          tabBarLabel: () => null,
+          tabBarIcon: () => null,
+          tabBarButton: () => <CameraTabButton />,
         }}
       />
       <Tabs.Screen
         name="report"
         options={{
           title: "Report",
-          tabBarIcon: ({ color, size }) => (
-            <FileText color={color} size={size - 2} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={FileText} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <User color={color} size={size - 2} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
         }}
       />
+      {/* Settings 从 tab bar 隐藏——通过 Profile 页进入 */}
       <Tabs.Screen
         name="settings"
         options={{
+          href: null,
           title: "Settings",
-          tabBarIcon: ({ color, size }) => (
-            <Settings color={color} size={size - 2} />
-          ),
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Settings} focused={focused} />,
         }}
       />
     </Tabs>
@@ -76,11 +147,82 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  // Tab bar 本体——白色半透明、圆角顶、柔和粉色阴影
+  // 注意：不要用 position: "absolute"，否则页面内容（如相机快门）会被 tab bar 盖住
   tabBar: {
-    backgroundColor: "rgba(255,255,255,0.95)",
-    borderTopColor: Colors.rose100,
-    borderTopWidth: 1,
-    paddingTop: 0,
+    backgroundColor: "rgba(255,255,255,0.97)",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 0,
+    paddingTop: 8,
+    height: 72,
+    shadowColor: "#F472B6",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 12,
   },
-  tabLabel: { fontSize: 10, fontWeight: "500" },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 2,
+    letterSpacing: 0.2,
+  },
+
+  // 普通 tab 图标 + 激活态小胶囊
+  tabIconWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingTop: 6,
+  },
+  activePill: {
+    position: "absolute",
+    top: 0,
+    width: 18,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: Colors.rose400,
+  },
+
+  // 中间相机按钮
+  cameraBtnWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraBtnShadow: {
+    shadowColor: "#EC4899",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  cameraHalo: {
+    position: "absolute",
+    top: -4,
+    left: -4,
+    right: -4,
+    bottom: -4,
+    borderRadius: 30,
+    backgroundColor: "rgba(244, 114, 182, 0.15)",
+  },
+  cameraBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+    overflow: "hidden",
+  },
+  cameraInnerGloss: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "55%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
 });

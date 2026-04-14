@@ -32,6 +32,8 @@ import {
 } from "../../constants/theme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
+import { useUser } from "../../lib/userContext";
+import { migrateGuestScans } from "../../lib/userId";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
@@ -43,6 +45,7 @@ interface AppUser {
 }
 
 export default function ProfileScreen() {
+  const { setUser: setCtxUser, clearUser: clearCtxUser } = useUser();
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"login" | "register">("login");
@@ -125,11 +128,24 @@ export default function ProfileScreen() {
   }
 
   async function _saveUser(data: any) {
+    // 迁移：用户在匿名状态（guest_xxx）拍过的照片，登录后要挂到新账号下，
+    // 否则会变成后端的孤儿记录（撤销同意、History、report 都看不到）。
+    // 在覆盖 @aurasight_user_id 之前读出旧值，调用后端 merge。
+    const prevId = await AsyncStorage.getItem("@aurasight_user_id");
+    if (prevId && prevId !== data.id) {
+      await migrateGuestScans(prevId, data.id);
+    }
     await AsyncStorage.setItem("@aurasight_user_id", data.id);
     await AsyncStorage.setItem("@aurasight_user_name", data.name);
     await AsyncStorage.setItem("@aurasight_user_email", data.email);
-    await AsyncStorage.setItem("@aurasight_user_mode", "vip");
     setUser({
+      id: data.id,
+      name: data.name,
+      email: data.email,
+      mode: "vip",
+    });
+    // 同步到全局 UserContext，让 camera 等页面立刻看到 VIP
+    await setCtxUser({
       id: data.id,
       name: data.name,
       email: data.email,
@@ -145,10 +161,10 @@ export default function ProfileScreen() {
         style: "destructive",
         onPress: async () => {
           await AsyncStorage.multiRemove([
-            "@aurasight_user_mode",
             "@aurasight_user_name",
             "@aurasight_user_email",
           ]);
+          await clearCtxUser();
           setUser(null);
         },
       },
