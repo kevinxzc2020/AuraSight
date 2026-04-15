@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Image,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -432,11 +433,29 @@ function DonutChart({
 }
 
 // ─── Chapter 3: 皮肤日记关联提示卡 ──────────────────────
-// 用规则引擎把日记标签和皮肤状态做简单关联，给用户"AI 在认识我"的感受
-// 真正的机器学习关联分析是 VIP 功能，这里是规则版的免费预览
-function DiaryInsightCard({ totalScans }: { totalScans: number }) {
-  // 只有扫描次数足够多时才显示，避免数据不足时给出误导性结论
+const TAG_EMOJI: Record<string, string> = {
+  sleep_good: "😴", sleep_bad: "😩", lots_of_water: "💧", low_water: "🏜",
+  healthy_diet: "🥗", junk_food: "🍔", stressed: "😤", relaxed: "😌",
+  exercised: "🏃", no_exercise: "🛋", new_product: "🧴", period: "📅",
+  alcohol: "🍷", dairy: "🥛", sugar: "🍰", outdoor: "🌤",
+};
+
+function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: string }) {
+  const [correlations, setCorrelations] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (totalScans < 5 || !userId) return;
+    fetch(`${API_URL}/ai/diary-correlation/${userId}`)
+      .then(r => r.json())
+      .then(d => { setCorrelations(d.correlations ?? []); setLoaded(true); })
+      .catch(() => setLoaded(true));
+  }, [userId, totalScans]);
+
   if (totalScans < 5) return null;
+
+  const impactColor = (impact: number) => impact > 3 ? "#10b981" : impact < -3 ? "#f43f5e" : "#94a3b8";
+  const impactLabel = (impact: number) => impact > 3 ? "↑ Better skin" : impact < -3 ? "↓ Worse skin" : "→ Neutral";
 
   return (
     <View style={st.diaryCard}>
@@ -450,21 +469,37 @@ function DiaryInsightCard({ totalScans }: { totalScans: number }) {
         </View>
       </View>
 
-      {/* 占位洞察 — 等皮肤日记数据积累后替换成真实关联分析 */}
-      <View style={st.diaryInsightRow}>
-        <Text style={st.diaryInsightEmoji}>💤</Text>
-        <Text style={st.diaryInsightText}>
-          Keep logging sleep quality — patterns usually emerge after 2 weeks of
-          data.
-        </Text>
-      </View>
-      <View style={st.diaryInsightRow}>
-        <Text style={st.diaryInsightEmoji}>💧</Text>
-        <Text style={st.diaryInsightText}>
-          Water intake correlation will be visible once you have 10+ diary
-          entries.
-        </Text>
-      </View>
+      {!loaded ? (
+        <View style={{ padding: Spacing.md, alignItems: "center" }}>
+          <ActivityIndicator size="small" color={Colors.pink500} />
+        </View>
+      ) : correlations.length === 0 ? (
+        <>
+          <View style={st.diaryInsightRow}>
+            <Text style={st.diaryInsightEmoji}>💤</Text>
+            <Text style={st.diaryInsightText}>Keep logging — patterns emerge after a few diary entries.</Text>
+          </View>
+          <View style={st.diaryInsightRow}>
+            <Text style={st.diaryInsightEmoji}>💧</Text>
+            <Text style={st.diaryInsightText}>Water intake and sleep quality correlations will appear here.</Text>
+          </View>
+        </>
+      ) : (
+        correlations.slice(0, 5).map((c, i) => (
+          <View key={i} style={st.diaryInsightRow}>
+            <Text style={st.diaryInsightEmoji}>{TAG_EMOJI[c.tag] ?? "📌"}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[st.diaryInsightText, { fontWeight: "600", color: Colors.gray700 }]}>
+                {c.tag.replace(/_/g, " ")}
+                <Text style={{ color: Colors.gray400 }}> ({c.count}×)</Text>
+              </Text>
+              <Text style={{ fontSize: FontSize.xs, color: impactColor(c.impact) }}>
+                {impactLabel(c.impact)} · avg score {c.avg_score}
+              </Text>
+            </View>
+          </View>
+        ))
+      )}
 
       <View style={st.diaryFooter}>
         <Text style={st.diaryFooterText}>
@@ -476,99 +511,125 @@ function DiaryInsightCard({ totalScans }: { totalScans: number }) {
 }
 
 // ─── Chapter 4: VIP 升级区块 ─────────────────────────────
-// 不是"扣押内容"的模糊墙，而是一个诱人的预览卡片
-// 让用户看到真实的 VIP 功能样子，然后做出有知情权的付费决定
+// ─── Deep Analysis Card (VIP only) ───────────────────────
+function DeepAnalysisCard({ userId }: { userId: string }) {
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/ai/deep-analysis/${userId}`, { method: "POST" });
+      const json = await res.json();
+      if (json.error === "not_enough_data") { setError(json.message); }
+      else setAnalysis(json);
+    } catch { setError("Unable to load deep analysis. Try again later."); }
+    finally { setLoading(false); }
+  }
+
+  if (!analysis && !loading && !error) {
+    return (
+      <View style={[st.card, Shadow.card]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.md }}>
+          <Crown size={16} color="#d97706" />
+          <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
+        </View>
+        <Text style={{ fontSize: FontSize.sm, color: Colors.gray600, marginBottom: Spacing.md, lineHeight: 20 }}>
+          Uncover how your lifestyle habits — sleep, diet, hydration, stress — are affecting your skin.
+        </Text>
+        <TouchableOpacity onPress={load} style={{ backgroundColor: "#d97706", borderRadius: Radius.full, paddingVertical: 12, alignItems: "center" }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: FontSize.sm }}>✨ Generate Deep Analysis</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (loading) return (
+    <View style={[st.card, Shadow.card, { alignItems: "center", paddingVertical: 32 }]}>
+      <ActivityIndicator color="#d97706" />
+      <Text style={{ color: Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>Analyzing your lifestyle patterns…</Text>
+    </View>
+  );
+
+  if (error) return (
+    <View style={[st.card, Shadow.card]}>
+      <Text style={{ color: Colors.gray500, fontSize: FontSize.sm, textAlign: "center", lineHeight: 20 }}>{error}</Text>
+    </View>
+  );
+
+  const impactColor = (label: string) => label === "positive" ? "#10b981" : label === "negative" ? "#f43f5e" : "#94a3b8";
+
+  return (
+    <View style={[st.card, Shadow.card]}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.sm }}>
+        <Crown size={16} color="#d97706" />
+        <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
+      </View>
+      <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: Colors.gray800, marginBottom: Spacing.md, lineHeight: 24 }}>
+        {analysis.headline}
+      </Text>
+
+      {/* Lifestyle insights */}
+      {(analysis.lifestyle_insights ?? []).map((ins: any, i: number) => (
+        <View key={i} style={{ borderLeftWidth: 3, borderLeftColor: impactColor(ins.impact), paddingLeft: Spacing.sm, marginBottom: Spacing.md }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: Colors.gray800 }}>{ins.factor}</Text>
+            <Text style={{ fontSize: FontSize.xs, color: impactColor(ins.impact), fontWeight: "600" }}>{ins.score_effect}</Text>
+          </View>
+          <Text style={{ fontSize: FontSize.xs, color: Colors.gray500, marginTop: 2, lineHeight: 18 }}>{ins.finding}</Text>
+        </View>
+      ))}
+
+      {/* Best / Worst habit */}
+      {analysis.best_habit && (
+        <View style={{ backgroundColor: "#ecfdf5", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#065f46" }}>✅ Best habit</Text>
+          <Text style={{ fontSize: FontSize.xs, color: "#065f46", marginTop: 2 }}>{analysis.best_habit}</Text>
+        </View>
+      )}
+      {analysis.worst_habit && (
+        <View style={{ backgroundColor: "#fff1f2", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#9f1239" }}>⚠️ Pattern to break</Text>
+          <Text style={{ fontSize: FontSize.xs, color: "#9f1239", marginTop: 2 }}>{analysis.worst_habit}</Text>
+        </View>
+      )}
+
+      {/* Prediction */}
+      {analysis.prediction && (
+        <View style={{ backgroundColor: "#fefce8", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#854d0e" }}>🔮 30-day prediction</Text>
+          <Text style={{ fontSize: FontSize.xs, color: "#854d0e", marginTop: 2 }}>{analysis.prediction}</Text>
+        </View>
+      )}
+
+      {/* Next experiment */}
+      {analysis.next_experiment && (
+        <View style={{ backgroundColor: "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#0c4a6e" }}>🧪 Try this next 30 days</Text>
+          <Text style={{ fontSize: FontSize.xs, color: "#0c4a6e", marginTop: 2 }}>{analysis.next_experiment}</Text>
+        </View>
+      )}
+
+      <TouchableOpacity onPress={load} style={{ marginTop: Spacing.md, alignItems: "center" }}>
+        <Text style={{ fontSize: FontSize.xs, color: Colors.gray400 }}>↻ Refresh analysis</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function VIPUpgradeSection({
   isVip,
+  userId,
   onUpgrade,
 }: {
   isVip: boolean;
+  userId: string;
   onUpgrade: () => void;
 }) {
-  const mockInsights = [
-    {
-      icon: "🌤",
-      title: "Weather Impact",
-      desc: "High humidity days correlate with 40% more breakouts",
-    },
-    {
-      icon: "💧",
-      title: "Hydration",
-      desc: "Skin clarity improved 23% on high-water intake days",
-    },
-    {
-      icon: "📅",
-      title: "Hormonal Cycle",
-      desc: "Chin breakouts peak during days 21–25 of your cycle",
-    },
-    {
-      icon: "🧴",
-      title: "Product Analysis",
-      desc: "Your new serum shows positive results after 7 days",
-    },
-  ];
-
   if (isVip) {
-    return (
-      <View style={[st.card, Shadow.card]}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            gap: Spacing.sm,
-            marginBottom: Spacing.md,
-          }}
-        >
-          <Crown size={16} color="#d97706" />
-          <Text
-            style={{
-              fontSize: FontSize.base,
-              fontWeight: "700",
-              color: "#d97706",
-            }}
-          >
-            VIP Features Unlocked
-          </Text>
-        </View>
-        {[
-          "Deep AI causal analysis",
-          "Skincare ingredient recommendations",
-          "Permanent cloud storage",
-          "4K timelapse video",
-          "Year-over-year comparison",
-        ].map((f, i) => (
-          <View
-            key={i}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: Spacing.sm,
-              marginBottom: 8,
-            }}
-          >
-            <Check size={14} color={Colors.emerald} />
-            <Text style={{ fontSize: FontSize.sm, color: Colors.gray600 }}>
-              {f}
-            </Text>
-          </View>
-        ))}
-        <View
-          style={{
-            backgroundColor: "#fff7ed",
-            borderRadius: Radius.lg,
-            padding: Spacing.md,
-            marginTop: Spacing.sm,
-          }}
-        >
-          <Text
-            style={{ fontSize: FontSize.xs, color: "#92400e", lineHeight: 18 }}
-          >
-            🚀 AI deep analysis is being trained on your data. Full report
-            coming very soon!
-          </Text>
-        </View>
-      </View>
-    );
+    return <DeepAnalysisCard userId={userId} />;
   }
 
   // 免费用户看到的是一个"功能预览"卡片，不是被遮住的内容
@@ -671,6 +732,17 @@ export default function ReportScreen() {
       setAiReport("Unable to generate report right now. Please try again later.");
     } finally {
       setAiReportLoading(false);
+    }
+  }
+
+  async function handleExportPDF() {
+    if (!userId) return;
+    try {
+      const { Linking } = await import("react-native");
+      const pdfUrl = `${API_URL}/pdf/report/${userId}`;
+      await Linking.openURL(pdfUrl);
+    } catch {
+      Alert.alert("Export failed", "Could not open PDF. Please try again.");
     }
   }
 
@@ -788,7 +860,7 @@ export default function ReportScreen() {
           )}
 
           {/* ── Chapter 3: 皮肤日记关联 ── */}
-          <DiaryInsightCard totalScans={data.total_scans} />
+          <DiaryInsightCard totalScans={data.total_scans} userId={userId} />
 
           {/* ── AI Report Card ── */}
           <TouchableOpacity onPress={handleGenerateAIReport} activeOpacity={0.85}>
@@ -804,10 +876,27 @@ export default function ReportScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
+          {/* ── PDF Export ── */}
+          {isVip && (
+            <TouchableOpacity onPress={handleExportPDF} activeOpacity={0.85} style={{
+              flexDirection: "row", alignItems: "center", gap: 10,
+              backgroundColor: "#f8fafc", borderRadius: 16, padding: 16,
+              borderWidth: 1, borderColor: "#e2e8f0", marginBottom: Spacing.lg,
+            }}>
+              <Text style={{ fontSize: 20 }}>📄</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: Colors.gray800 }}>Export PDF Report</Text>
+                <Text style={{ fontSize: FontSize.xs, color: Colors.gray400 }}>Download your 30-day skin report</Text>
+              </View>
+              <ChevronRight size={16} color={Colors.gray400} />
+            </TouchableOpacity>
+          )}
+
           {/* ── Chapter 4: VIP 深度分析 ── */}
           <Text style={st.chapterLabel}>Deep Analysis</Text>
           <VIPUpgradeSection
             isVip={isVip}
+            userId={userId}
             onUpgrade={() => router.push("/vip")}
           />
         </ScrollView>

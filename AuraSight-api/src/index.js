@@ -2,6 +2,38 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
+const bcrypt = require("bcrypt");
+const BCRYPT_ROUNDS = 12;
+const { v2: cloudinary } = require("cloudinary");
+
+// ─── Cloudinary 配置 ──────────────────────────────────────
+if (process.env.CLOUDINARY_CLOUD_NAME) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key:    process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+}
+
+/**
+ * 把 base64 图片上传到 Cloudinary，返回 secure_url。
+ * 如果 Cloudinary 未配置或上传失败，返回 null（不影响主流程）。
+ */
+async function uploadToCloudinary(base64Image, userId) {
+  if (!process.env.CLOUDINARY_CLOUD_NAME) return null;
+  try {
+    const dataUri = `data:image/jpeg;base64,${base64Image}`;
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder: `aurasight/${userId}`,
+      resource_type: "image",
+      transformation: [{ quality: "auto", fetch_format: "auto" }],
+    });
+    return result.secure_url;
+  } catch (err) {
+    console.warn("⚠️  Cloudinary upload failed:", err.message);
+    return null;
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -16,6 +48,14 @@ const client = new MongoClient(process.env.MONGODB_URI);
 
 async function connectDB() {
   try {
+    // ⚠️  安全检查：如果 MONGODB_URI 包含明文密码暴露风险就警告
+    const uri = process.env.MONGODB_URI ?? "";
+    if (uri.includes("@") && process.env.NODE_ENV === "production") {
+      console.warn("⚠️  WARNING: MONGODB_URI contains credentials. Rotate the Atlas password before public release.");
+    }
+    if (!process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY === "your_api_key_here") {
+      console.warn("⚠️  WARNING: ANTHROPIC_API_KEY is not set.");
+    }
     await client.connect();
     db = client.db(process.env.DB_NAME ?? "AuraSight");
     console.log("✅ MongoDB connected:", process.env.DB_NAME);
@@ -228,7 +268,7 @@ app.post("/points/:userId/task", async (req, res) => {
  */
 app.post("/scans", async (req, res) => {
   try {
-    const { user_id, scan_date, body_zone, detections, image_uri, notes } =
+    const { user_id, scan_date, body_zone, detections, image_uri, image_base64, notes } =
       req.body;
 
     if (!user_id || !scan_date || !body_zone) {
@@ -237,12 +277,19 @@ app.post("/scans", async (req, res) => {
       });
     }
 
+    // 如果前端传了 base64 图片，上传到 Cloudinary 拿云端 URL
+    let finalImageUri = image_uri ?? null;
+    if (image_base64 && process.env.CLOUDINARY_CLOUD_NAME) {
+      const cloudUrl = await uploadToCloudinary(image_base64, user_id);
+      if (cloudUrl) finalImageUri = cloudUrl;
+    }
+
     const record = {
       user_id,
       scan_date: new Date(scan_date),
       body_zone,
       detections: detections ?? [],
-      image_uri: image_uri ?? null,
+      image_uri: finalImageUri,
       notes: notes ?? null,
       total_count: (detections ?? []).length,
       skin_status: calcSkinStatus(detections ?? []),
@@ -545,9 +592,7 @@ app.post("/auth/register", async (req, res) => {
     if (existing)
       return res.status(409).json({ error: "Email already registered" });
 
-    // 简单 hash（生产环境用 bcrypt，MVP 先用这个）
-    const crypto = require("crypto");
-    const hash = crypto.createHash("sha256").update(password).digest("hex");
+    const hash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
     const user = {
       name,
@@ -579,15 +624,12 @@ app.post("/auth/login", async (req, res) => {
       return res.status(400).json({ error: "Missing email or password" });
     }
 
-    const crypto = require("crypto");
-    const hash = crypto.createHash("sha256").update(password).digest("hex");
-
     const user = await usersCollection().findOne({
       email: email.toLowerCase(),
-      password: hash,
     });
 
-    if (!user)
+    const valid = user && await bcrypt.compare(password, user.password);
+    if (!valid)
       return res.status(401).json({ error: "Invalid email or password" });
 
     res.json({
@@ -596,6 +638,29 @@ app.post("/auth/login", async (req, res) => {
       email: user.email,
       mode: user.mode,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Consent ──────────────────────────────────────────────
+
+/**
+ * POST /consent/revoke
+ * 用户撤销数据使用同意——把该用户所有历史 scans 打上 can_train=false
+ * 前端 lib/consent.ts 的 revokeConsentEverywhere() 调用此接口
+ */
+app.post("/consent/revoke", async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    if (!user_id) return res.status(400).json({ error: "user_id required" });
+
+    await scansCollection().updateMany(
+      { user_id },
+      { $set: { can_train: false, consent_revoked_at: new Date() } }
+    );
+
+    res.json({ success: true, message: "Consent revoked. Your data has been removed from training sets." });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -741,10 +806,34 @@ function getAnthropicClient() {
   return new Anthropic.default({ apiKey: key });
 }
 
+// ─── NMS: 去掉重叠的框，保留高置信度的 ──────────────────────
+function nmsFilter(boxes, iouThreshold = 0.4) {
+  // 按 confidence 降序排列
+  const sorted = [...boxes].sort((a, b) => b.confidence - a.confidence);
+  const kept = [];
+  for (const box of sorted) {
+    const overlap = kept.some(k => iou(box.bbox, k.bbox) > iouThreshold);
+    if (!overlap) kept.push(box);
+  }
+  return kept;
+}
+
+function iou(a, b) {
+  const ax1 = a.cx - a.w / 2, ay1 = a.cy - a.h / 2;
+  const ax2 = a.cx + a.w / 2, ay2 = a.cy + a.h / 2;
+  const bx1 = b.cx - b.w / 2, by1 = b.cy - b.h / 2;
+  const bx2 = b.cx + b.w / 2, by2 = b.cy + b.h / 2;
+  const ix = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+  const iy = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+  const inter = ix * iy;
+  const union = (ax2-ax1)*(ay2-ay1) + (bx2-bx1)*(by2-by1) - inter;
+  return union > 0 ? inter / union : 0;
+}
+
 // ─── Roboflow helper ─────────────────────────────────────────
 async function detectWithRoboflow(image_base64) {
   const apiKey = process.env.ROBOFLOW_API_KEY;
-  const model   = process.env.ROBOFLOW_MODEL; // e.g. "acne-detection-v1-kf14t/1"
+  const model   = process.env.ROBOFLOW_MODEL; // e.g. "acne-detection-v1-kf14t/2"
   if (!apiKey || !model || apiKey === "your_roboflow_key_here") return null;
 
   try {
@@ -759,11 +848,12 @@ async function detectWithRoboflow(image_base64) {
     if (!data.predictions || !data.image) return null;
 
     const { width: imgW, height: imgH } = data.image;
-    // Normalise to 0-1 bbox format, filter low confidence
-    return data.predictions
-      .filter(p => p.confidence >= 0.35)
+
+    // Step 1: 过滤低置信度（0.50 以上才算）
+    const filtered = data.predictions
+      .filter(p => p.confidence >= 0.50)
       .map(p => ({
-        acne_type: "redness",          // placeholder — Claude will classify below
+        acne_type: "redness",
         confidence: Math.round(p.confidence * 100) / 100,
         bbox: {
           cx: p.x / imgW,
@@ -772,31 +862,50 @@ async function detectWithRoboflow(image_base64) {
           h:  p.height / imgH,
         },
       }));
+
+    // Step 2: NMS — 去掉重叠 > 40% 的框
+    const afterNms = nmsFilter(filtered, 0.4);
+
+    // Step 3: 最多保留 15 个（超过就说明模型误报严重）
+    const capped = afterNms.slice(0, 15);
+
+    console.log(`Roboflow raw: ${data.predictions.length} → conf≥0.5: ${filtered.length} → NMS: ${afterNms.length} → cap: ${capped.length}`);
+    return capped;
   } catch (e) {
     console.warn("⚠️  Roboflow error:", e.message);
     return null;
   }
 }
 
-// POST /ai/analyze — Hybrid: Roboflow for positions + Claude for classification & analysis
+// POST /ai/analyze — Claude Vision 单独检测（Roboflow 模型精度不足暂时旁路）
+// 待 Colab 大数据集训练完成后再重新启用 Roboflow hybrid 模式
 app.post("/ai/analyze", async (req, res) => {
   try {
     const { image_base64, media_type = "image/jpeg" } = req.body;
     if (!image_base64) return res.status(400).json({ error: "image_base64 required" });
 
-    // ── Step 1: try Roboflow for accurate bbox positions ──────
-    const roboflowBoxes = await detectWithRoboflow(image_base64);
-    // Only use Roboflow path if it returned at least 1 detection
-    const useRoboflow = Array.isArray(roboflowBoxes) && roboflowBoxes.length > 0;
-    console.log(
-      roboflowBoxes === null
-        ? "ℹ️  Roboflow not configured — Claude doing full analysis"
-        : roboflowBoxes.length === 0
-          ? "ℹ️  Roboflow: no detections — Claude doing full analysis"
-          : `✅ Roboflow: ${roboflowBoxes.length} detections`
-    );
+    // Roboflow 旁路开关 — 当前模型 mAP 只有 24%，先关掉等更好的模型训练完
+    // 改回 true 即可重新启用 hybrid 模式
+    const ROBOFLOW_ENABLED = false;
 
-    // ── Step 2: Claude for classification + text analysis ─────
+    let roboflowBoxes = null;
+    let useRoboflow = false;
+
+    if (ROBOFLOW_ENABLED) {
+      roboflowBoxes = await detectWithRoboflow(image_base64);
+      useRoboflow = Array.isArray(roboflowBoxes) && roboflowBoxes.length > 0;
+      console.log(
+        roboflowBoxes === null
+          ? "ℹ️  Roboflow not configured — Claude doing full analysis"
+          : roboflowBoxes.length === 0
+            ? "ℹ️  Roboflow: no detections — Claude doing full analysis"
+            : `✅ Roboflow: ${roboflowBoxes.length} detections`
+      );
+    } else {
+      console.log("ℹ️  Roboflow bypassed — Claude doing full analysis");
+    }
+
+    // ── Claude Vision 全量检测 ─────
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
       model: "claude-opus-4-6",
@@ -841,7 +950,20 @@ app.post("/ai/analyze", async (req, res) => {
         tips:           claudeResult.tips,
       };
     } else {
-      finalResult = claudeResult;
+      // Claude-only 模式：后端再过滤一遍，去掉不可信的检测
+      const rawDetections = claudeResult.detections ?? [];
+      const cleaned = rawDetections
+        .filter(d => (d.confidence ?? 0) >= 0.75)   // 只保留 75%+ 置信度
+        .filter(d => d.bbox && d.bbox.w >= 0.02 && d.bbox.h >= 0.02)  // 过滤掉太小的噪点
+        .slice(0, 8);                                // 最多 8 个
+
+      // NMS 去重叠
+      const deduped = nmsFilter(cleaned, 0.4);
+
+      finalResult = {
+        ...claudeResult,
+        detections: deduped,
+      };
     }
 
     res.json(finalResult);
@@ -972,6 +1094,89 @@ If the image is too blurry, too dark, not a close-up of skin, or the face is not
 }
 
 // POST /ai/report/:userId — 根据30天数据生成个性化AI报告
+// GET /pdf/report/:userId — 生成 30 天 PDF 报告并下载
+app.get("/pdf/report/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const PDFDocument = require("pdfkit");
+    const db = client.db(process.env.DB_NAME);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const scans = await db.collection("scans")
+      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
+      .sort({ scan_date: 1 })
+      .toArray();
+
+    const scores = scans.map(s => s.skin_score ?? 100);
+    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const firstScore = scores[0] ?? 0;
+    const lastScore = scores[scores.length - 1] ?? 0;
+    const trend = lastScore > firstScore ? "↗ Improving" : lastScore < firstScore ? "↘ Declining" : "→ Stable";
+    const breakdown = scans.reduce((acc, s) => {
+      (s.detections ?? []).forEach(d => { acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1; });
+      return acc;
+    }, { pustule: 0, redness: 0, broken: 0, scab: 0 });
+
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="AuraSight-Report-${new Date().toISOString().split("T")[0]}.pdf"`);
+    doc.pipe(res);
+
+    // ── Header ──────────────────────────────────────────────
+    doc.fontSize(24).fillColor("#C0174D").text("AuraSight", { align: "center" });
+    doc.fontSize(12).fillColor("#666").text("30-Day Skin Health Report", { align: "center" });
+    doc.fontSize(10).fillColor("#999").text(`Generated ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, { align: "center" });
+    doc.moveDown(2);
+
+    // ── Summary Stats ────────────────────────────────────────
+    doc.fontSize(14).fillColor("#1a1a1a").text("Summary", { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor("#333");
+    doc.text(`Total scans completed: ${scans.length}`);
+    doc.text(`Average skin score: ${avgScore}/100`);
+    doc.text(`Starting score: ${firstScore}  →  Latest score: ${lastScore}`);
+    doc.text(`Overall trend: ${trend}`);
+    doc.moveDown(1.5);
+
+    // ── Acne Breakdown ───────────────────────────────────────
+    doc.fontSize(14).fillColor("#1a1a1a").text("Acne Breakdown (30 days)", { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(11).fillColor("#333");
+    const typeLabels = { pustule: "Pustules (whiteheads)", redness: "Redness / Papules", broken: "Wounds / Open spots", scab: "Healing / Scabs" };
+    Object.entries(breakdown).forEach(([type, count]) => {
+      doc.text(`${typeLabels[type] ?? type}: ${count}`);
+    });
+    doc.moveDown(1.5);
+
+    // ── Score History ────────────────────────────────────────
+    if (scans.length > 0) {
+      doc.fontSize(14).fillColor("#1a1a1a").text("Score History", { underline: true });
+      doc.moveDown(0.5);
+      doc.fontSize(10).fillColor("#555");
+      scans.slice(-14).forEach(s => {
+        const date = new Date(s.scan_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        const score = s.skin_score ?? 100;
+        const bar = "█".repeat(Math.round(score / 10)) + "░".repeat(10 - Math.round(score / 10));
+        doc.text(`${date}  ${bar}  ${score}`);
+      });
+      doc.moveDown(1.5);
+    }
+
+    // ── Footer ───────────────────────────────────────────────
+    doc.fontSize(9).fillColor("#aaa").text(
+      "This report is for personal wellness tracking only. Consult a dermatologist for medical advice.",
+      { align: "center" }
+    );
+
+    doc.end();
+  } catch (err) {
+    console.error("PDF export error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/ai/report/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -1124,6 +1329,171 @@ ${userContext}`,
 });
 
 // PATCH /scans/:id/diary — 给扫描记录添加日记备注
+// POST /ai/deep-analysis/:userId — VIP 深度 AI 分析
+// 包含日记标签关联、生活方式影响因素分析
+app.post("/ai/deep-analysis/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const scans = await db.collection("scans")
+      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
+      .sort({ scan_date: 1 })
+      .toArray();
+
+    if (scans.length < 3) {
+      return res.json({
+        error: "not_enough_data",
+        message: "Complete at least 3 scans to unlock deep analysis."
+      });
+    }
+
+    // ── 日记标签统计 ────────────────────────────────────────
+    const tagMap = {};
+    const tagScores = {}; // tag → [scores on days with that tag]
+    scans.forEach(s => {
+      const score = s.skin_score ?? 100;
+      (s.diary_tags ?? []).forEach(tag => {
+        tagMap[tag] = (tagMap[tag] ?? 0) + 1;
+        if (!tagScores[tag]) tagScores[tag] = [];
+        tagScores[tag].push(score);
+      });
+    });
+
+    // 计算每个标签的平均分 vs 整体平均分
+    const overallAvg = scans.reduce((s, r) => s + (r.skin_score ?? 100), 0) / scans.length;
+    const tagImpact = Object.entries(tagScores).map(([tag, scores]) => {
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      return { tag, count: tagMap[tag], avg_score: Math.round(avg), impact: Math.round(avg - overallAvg) };
+    }).sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+
+    // ── 皮肤趋势 ────────────────────────────────────────────
+    const scores = scans.map(s => s.skin_score ?? 100);
+    const breakdown = scans.reduce((acc, s) => {
+      (s.detections ?? []).forEach(d => { acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1; });
+      return acc;
+    }, {});
+    const weeklyTrend = [];
+    for (let i = 0; i < 4; i++) {
+      const week = scans.filter(s => {
+        const daysAgo = (Date.now() - new Date(s.scan_date).getTime()) / 86400000;
+        return daysAgo >= i * 7 && daysAgo < (i + 1) * 7;
+      });
+      if (week.length > 0) {
+        weeklyTrend.unshift({
+          week: `Week ${4 - i}`,
+          avg: Math.round(week.reduce((s, r) => s + (r.skin_score ?? 100), 0) / week.length),
+          scans: week.length
+        });
+      }
+    }
+
+    const anthropic = getAnthropicClient();
+    const message = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 2000,
+      messages: [{
+        role: "user",
+        content: `You are AuraSight's senior AI skin consultant performing a deep lifestyle correlation analysis.
+
+SKIN DATA (30 days):
+- ${scans.length} scans, overall avg score: ${Math.round(overallAvg)}/100
+- First score: ${scores[0]}, Latest score: ${scores[scores.length - 1]}
+- Acne breakdown: ${JSON.stringify(breakdown)}
+- Weekly trend: ${JSON.stringify(weeklyTrend)}
+
+LIFESTYLE DIARY CORRELATIONS:
+${tagImpact.length > 0
+  ? tagImpact.map(t => `- "${t.tag}": appeared ${t.count}x, avg skin score ${t.avg_score} (${t.impact > 0 ? '+' : ''}${t.impact} vs baseline)`).join('\n')
+  : '- No diary tags recorded yet'}
+
+Based on this data, provide a deep analysis in this exact JSON format:
+{
+  "headline": "One punchy headline summarizing their skin journey",
+  "overall_trend": "improving | declining | stable | fluctuating",
+  "lifestyle_insights": [
+    {
+      "factor": "factor name (e.g. Sleep quality, Hydration, Diet, Stress)",
+      "finding": "1-2 sentence finding based on diary data or inferred from patterns",
+      "impact": "positive | negative | neutral",
+      "score_effect": "+X or -X points on skin score (estimate)"
+    }
+  ],
+  "best_habit": "The single most beneficial habit identified from their data",
+  "worst_habit": "The single most harmful pattern (be honest but kind)",
+  "weekly_pattern": "Any day-of-week or weekly pattern observed",
+  "next_experiment": "One specific lifestyle experiment to try next 30 days",
+  "prediction": "If they maintain current trajectory, skin score in 30 days will be approximately X"
+}`
+      }]
+    });
+
+    const raw = message.content[0].text.trim();
+    const json = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "");
+    const analysis = JSON.parse(json);
+
+    res.json({
+      ...analysis,
+      tag_impact: tagImpact,
+      overall_avg: Math.round(overallAvg),
+      weekly_trend: weeklyTrend,
+      scan_count: scans.length,
+      generated_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Deep analysis error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /ai/diary-correlation/:userId — 日记标签与皮肤分数的关联（轻量版，不需要 Claude）
+app.get("/ai/diary-correlation/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+
+    const scans = await db.collection("scans")
+      .find({ user_id: userId, diary_tags: { $exists: true, $not: { $size: 0 } } })
+      .sort({ scan_date: -1 })
+      .limit(60)
+      .toArray();
+
+    if (scans.length < 3) {
+      return res.json({ correlations: [], message: "Need more diary entries for correlation." });
+    }
+
+    const overallAvg = scans.reduce((s, r) => s + (r.skin_score ?? 100), 0) / scans.length;
+    const tagScores = {};
+    scans.forEach(s => {
+      (s.diary_tags ?? []).forEach(tag => {
+        if (!tagScores[tag]) tagScores[tag] = [];
+        tagScores[tag].push(s.skin_score ?? 100);
+      });
+    });
+
+    const correlations = Object.entries(tagScores)
+      .filter(([, scores]) => scores.length >= 2)
+      .map(([tag, scores]) => {
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        return {
+          tag,
+          count: scores.length,
+          avg_score: Math.round(avg),
+          impact: Math.round(avg - overallAvg),
+          label: avg > overallAvg + 3 ? "beneficial" : avg < overallAvg - 3 ? "harmful" : "neutral"
+        };
+      })
+      .sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
+
+    res.json({ correlations, overall_avg: Math.round(overallAvg), scan_count: scans.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.patch("/scans/:id/diary", async (req, res) => {
   try {
     const { id } = req.params;

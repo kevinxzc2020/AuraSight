@@ -125,6 +125,7 @@ export async function saveScan(
     ScanRecord,
     "_id" | "created_at" | "total_count" | "skin_status" | "skin_score"
   >,
+  imageBase64?: string,  // 可选：传 base64 让后端上传到 Cloudinary
 ): Promise<ScanRecord> {
   try {
     // 把 consent_version 一并发到后端——让后端在数据库里冻结用户签的是哪
@@ -133,6 +134,7 @@ export async function saveScan(
     const record = await apiCall<ScanRecord>("POST", "/scans", {
       ...scan,
       consent_version: CONSENT_VERSION,
+      ...(imageBase64 ? { image_base64: imageBase64 } : {}),
     });
     await _updateLocalCache(record);
     console.log("✅ Scan saved:", record._id);

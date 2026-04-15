@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { purchasePlan, restorePurchases, PlanId } from "../lib/purchases";
 import {
   View,
   Text,
@@ -69,17 +70,45 @@ export default function VIPScreen() {
   const selectedPlan = PLANS.find((p) => p.id === selected)!;
   const { user, setUser } = useUser();
 
+  const [purchasing, setPurchasing] = useState(false);
+
   async function handleSubscribe() {
-    // 模拟购买成功 → 写入 VIP 身份（同步到 UserContext + legacy 键）
-    await AsyncStorage.setItem("@aurasight_user_mode", "vip");
-    if (user) {
-      await setUser({ ...user, mode: "vip" });
+    setPurchasing(true);
+    try {
+      const result = await purchasePlan(selected as PlanId);
+      if (result.success) {
+        // 购买成功 → 写入 VIP 身份
+        await AsyncStorage.setItem("@aurasight_user_mode", "vip");
+        if (user) await setUser({ ...user, mode: "vip" });
+        Alert.alert(
+          "🎉 Welcome to VIP!",
+          "Your account has been upgraded. Enjoy unlimited access.",
+          [{ text: "Let's go!", onPress: () => router.back() }],
+        );
+      } else if (result.error !== "cancelled") {
+        Alert.alert("Purchase failed", result.error ?? "Please try again.");
+      }
+    } finally {
+      setPurchasing(false);
     }
-    Alert.alert(
-      "🎉 Welcome to VIP!",
-      "Your account has been upgraded. Enjoy unlimited access.",
-      [{ text: "Let's go!", onPress: () => router.back() }],
-    );
+  }
+
+  async function handleRestore() {
+    setPurchasing(true);
+    try {
+      const restored = await restorePurchases();
+      if (restored) {
+        await AsyncStorage.setItem("@aurasight_user_mode", "vip");
+        if (user) await setUser({ ...user, mode: "vip" });
+        Alert.alert("✅ Restored", "Your VIP access has been restored.", [
+          { text: "Great!", onPress: () => router.back() },
+        ]);
+      } else {
+        Alert.alert("Nothing to restore", "No previous purchases found for this account.");
+      }
+    } finally {
+      setPurchasing(false);
+    }
   }
 
   return (
@@ -283,7 +312,7 @@ export default function VIPScreen() {
 
         {/* ── Legal ── */}
         <View style={styles.legalRow}>
-          <TouchableOpacity><Text style={styles.legalLink}>Restore purchase</Text></TouchableOpacity>
+          <TouchableOpacity onPress={handleRestore}><Text style={styles.legalLink}>Restore purchase</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
           <TouchableOpacity><Text style={styles.legalLink}>Terms</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>

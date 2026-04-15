@@ -1,0 +1,33 @@
+# ─── Secrets — NEVER commit these ───────────────────────────
+.env
+.env.local
+.env.production
+AuraSight-api/.env
+AuraSight-FrontEnd/.env
+AuraSight-FrontEnd/.env.local
+
+# ─── Node ────────────────────────────────────────────────────
+node_modules/
+AuraSight-api/node_modules/
+AuraSight-FrontEnd/node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ─── Expo / React Native ─────────────────────────────────────
+.expo/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# ─── OS ──────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── IDE ─────────────────────────────────────────────────────
+.vscode/
+.idea/

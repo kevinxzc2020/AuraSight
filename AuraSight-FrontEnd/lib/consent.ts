@@ -71,8 +71,7 @@ export async function revokeConsent(): Promise<void> {
 export async function revokeConsentEverywhere(userId: string): Promise<void> {
   await revokeConsent();
   try {
-    const API_URL =
-      process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
+    const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
     await fetch(`${API_URL}/consent/revoke`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

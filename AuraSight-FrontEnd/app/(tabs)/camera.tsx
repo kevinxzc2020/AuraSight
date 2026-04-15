@@ -108,6 +108,7 @@ export default function CameraScreen() {
   // Preview + AI analysis state
   const [analyzing, setAnalyzing] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [previewBase64, setPreviewBase64] = useState<string | null>(null); // for Cloudinary upload
   const [aiResult, setAiResult] = useState<AnalyzeResult | null>(null);
   const [showAnnotations, setShowAnnotations] = useState(true);
 
@@ -272,7 +273,9 @@ export default function CameraScreen() {
         [{ resize: { width: 512 } }],
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
       );
-      const result = await analyzeImage(resized.base64 ?? "", "image/jpeg");
+      const b64 = resized.base64 ?? "";
+      setPreviewBase64(b64); // 保存供上传 Cloudinary
+      const result = await analyzeImage(b64, "image/jpeg");
       setAiResult(result);
       await consumeAI(isVIP);
       const q = await getQuotaSummary();
@@ -335,7 +338,7 @@ export default function CameraScreen() {
         image_uri: previewUri,
         detections,
         notes: aiResult?.summary ?? "",
-      });
+      }, previewBase64 ?? undefined);
 
       const taskType = activeZone === "back" || activeZone === "chest" ? "body" : "face";
       const ptsRes = await fetch(`${API_URL}/points/${userId}/task`, {
