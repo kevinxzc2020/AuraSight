@@ -32,7 +32,7 @@ import {
   ChevronRight,
   X,
 } from "lucide-react-native";
-import { Modal, Pressable } from "react-native";
+import { Modal, Pressable, Share, Linking } from "react-native";
 import { generateAIReport } from "../../lib/ai";
 import {
   Colors,
@@ -46,6 +46,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, router } from "expo-router";
 import { getUserId } from "../../lib/userId";
+import { SensitiveGate } from "../../lib/sensitiveGate";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -563,10 +564,25 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
 
   return (
     <View style={[st.card, Shadow.card]}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.sm }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: 4 }}>
         <Crown size={16} color="#d97706" />
         <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
       </View>
+      {/* 窗口副标题：诚实地反映这次分析基于多少数据 */}
+      {(analysis.window_label || analysis.scan_count != null) && (
+        <Text style={{ fontSize: FontSize.xs, color: Colors.gray500, marginBottom: Spacing.sm }}>
+          Based on {analysis.scan_count ?? "?"} scan{analysis.scan_count === 1 ? "" : "s"}
+          {analysis.window_label ? ` over ${analysis.window_label}` : ""}
+          {analysis.data_confidence ? ` · confidence: ${analysis.data_confidence}` : ""}
+        </Text>
+      )}
+      {analysis.limited_data && (
+        <View style={{ backgroundColor: "#fff7ed", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm, borderWidth: 1, borderColor: "#fed7aa" }}>
+          <Text style={{ fontSize: FontSize.xs, color: "#9a3412", lineHeight: 18 }}>
+            ⏳ Early read: only a few days of data so far. Treat findings as initial patterns — not conclusions. Scan daily to sharpen the analysis.
+          </Text>
+        </View>
+      )}
       <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: Colors.gray800, marginBottom: Spacing.md, lineHeight: 24 }}>
         {analysis.headline}
       </Text>
@@ -599,7 +615,7 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
       {/* Prediction */}
       {analysis.prediction && (
         <View style={{ backgroundColor: "#fefce8", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#854d0e" }}>🔮 30-day prediction</Text>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#854d0e" }}>🔮 Prediction</Text>
           <Text style={{ fontSize: FontSize.xs, color: "#854d0e", marginTop: 2 }}>{analysis.prediction}</Text>
         </View>
       )}
@@ -607,7 +623,7 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
       {/* Next experiment */}
       {analysis.next_experiment && (
         <View style={{ backgroundColor: "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#0c4a6e" }}>🧪 Try this next 30 days</Text>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#0c4a6e" }}>🧪 Next experiment</Text>
           <Text style={{ fontSize: FontSize.xs, color: "#0c4a6e", marginTop: 2 }}>{analysis.next_experiment}</Text>
         </View>
       )}
@@ -689,6 +705,228 @@ function VIPUpgradeSection({
   );
 }
 
+// ─── AI 报告正文渲染 ─────────────────────────────────────
+// 把 Claude 返回的 plain text 或带 `## 标题` 的 markdown-lite 切成章节卡片。
+// 不引入完整 markdown 库 —— 只处理 `## heading` 和段落。
+function AIReportBody({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming: boolean;
+}) {
+  if (!text) return null;
+  // 按 `## ` 切块。若全文没有 heading，就整个当一个无标题块。
+  const blocks: { title?: string; body: string }[] = [];
+  const lines = text.split("\n");
+  let current: { title?: string; body: string } = { body: "" };
+  for (const raw of lines) {
+    const line = raw.replace(/\r$/, "");
+    const m = line.match(/^##\s+(.+)$/);
+    if (m) {
+      if (current.body.trim() || current.title) blocks.push(current);
+      current = { title: m[1].trim(), body: "" };
+    } else {
+      current.body += (current.body ? "\n" : "") + line;
+    }
+  }
+  if (current.body.trim() || current.title) blocks.push(current);
+
+  return (
+    <View>
+      {blocks.map((b, i) => (
+        <View key={i} style={st.aiBlock}>
+          {b.title && <Text style={st.aiBlockTitle}>{b.title}</Text>}
+          <Text style={st.aiReportText}>
+            {b.body.trim()}
+            {streaming && i === blocks.length - 1 ? (
+              <Text style={st.aiCaret}>▋</Text>
+            ) : null}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// ─── Share Progress Modal ────────────────────────────────
+// 4 种分享/导出形态：
+//   before_after — 首末扫描并排对比（露脸）
+//   streak       — 坚持天数打卡，鼓励晒坚持（不露脸）
+//   invite       — 拉新邀请（系统 Share sheet 发文案）
+//   doctor       — VIP PDF 发给皮肤科医生（Linking 打开后端 PDF）
+// 统一的分享卡：一张图包含所有关键信息（skin score、streak、before/after 缩略图、邀请码）。
+// 用户可截屏发送——不引入 react-native-view-shot 这种 native 依赖。
+// Share 按钮走系统 share sheet 分享带邀请码的文案（文字层面）。
+function ShareProgressModal({
+  visible,
+  onClose,
+  data,
+  userId,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  data: ReportData;
+  userId: string;
+  // 旧参数 isVip / onUpgrade 已不再需要（PDF 功能移除后没有升级入口了）
+  isVip?: boolean;
+  onUpgrade?: () => void;
+}) {
+  const improved = data.score_change_pct >= 0;
+  // 占位推荐码：userId 首 6 位大写。后端接真实 referral table 再替换。
+  const referralCode = (userId || "AURASIGHT").slice(0, 6).toUpperCase();
+
+  async function handleShare() {
+    try {
+      await Share.share({
+        message:
+          `${data.streak ? `🔥 Day ${data.streak} of my skin journey — ` : ""}` +
+          `${data.total_scans} scans, skin score ${improved ? "up" : "at"} ${Math.abs(
+            data.score_change_pct,
+          )}% 🌸\n\n` +
+          `Tracking with AuraSight. Use my code ${referralCode} for 1 month free VIP: https://aurasight.app/invite/${referralCode}`,
+      });
+    } catch {
+      /* 用户取消，忽略 */
+    }
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={st.shareOverlay} onPress={onClose}>
+        <Pressable style={st.shareSheet} onPress={() => {}}>
+          <TouchableOpacity onPress={onClose} style={st.shareClose}>
+            <X size={18} color="#fff" />
+          </TouchableOpacity>
+
+          {/* ── 一张统一的总结卡 ── */}
+          <LinearGradient
+            colors={["#FB923C", "#F43F8F", "#A855F7"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={st.summaryCard}
+          >
+            {/* 顶部：品牌 + streak 徽章 */}
+            <View style={st.summaryHeader}>
+              <Text style={st.summaryBrand}>AuraSight</Text>
+              {data.streak > 0 && (
+                <View style={st.summaryStreakPill}>
+                  <Text style={{ fontSize: 12 }}>🔥</Text>
+                  <Text style={st.summaryStreakPillText}>{data.streak} days</Text>
+                </View>
+              )}
+            </View>
+
+            {/* 中部：skin score 大数字 + 变化 */}
+            <View style={st.summaryScoreWrap}>
+              <Text style={st.summaryScoreBig}>
+                {data.latest_scan?.score ?? "–"}
+              </Text>
+              <Text style={st.summaryScoreLbl}>Skin Score</Text>
+              <View style={st.summaryDeltaRow}>
+                {improved ? (
+                  <TrendingUp size={14} color="#fff" />
+                ) : (
+                  <TrendingDown size={14} color="#fff" />
+                )}
+                <Text style={st.summaryDeltaText}>
+                  {improved ? "+" : ""}
+                  {data.score_change_pct}% over {data.total_scans} scan
+                  {data.total_scans === 1 ? "" : "s"}
+                </Text>
+              </View>
+            </View>
+
+            {/* Before / After 缩略图（有照片才显示，没有就保持卡片简洁） */}
+            {(data.first_scan?.image_uri || data.latest_scan?.image_uri) && (
+              <View style={st.summaryBARow}>
+                <View style={st.summaryBACell}>
+                  {data.first_scan?.image_uri ? (
+                    <Image
+                      source={{ uri: data.first_scan.image_uri }}
+                      style={st.summaryBAImg}
+                    />
+                  ) : (
+                    <View style={[st.summaryBAImg, st.summaryBAEmpty]} />
+                  )}
+                  <Text style={st.summaryBALbl}>Day 1</Text>
+                </View>
+                <Text style={{ fontSize: 16, color: "rgba(255,255,255,0.85)", marginHorizontal: 4 }}>
+                  →
+                </Text>
+                <View style={st.summaryBACell}>
+                  {data.latest_scan?.image_uri ? (
+                    <Image
+                      source={{ uri: data.latest_scan.image_uri }}
+                      style={st.summaryBAImg}
+                    />
+                  ) : (
+                    <View style={[st.summaryBAImg, st.summaryBAEmpty]} />
+                  )}
+                  <Text style={st.summaryBALbl}>Today</Text>
+                </View>
+              </View>
+            )}
+
+            {/* 底部：邀请码水印 */}
+            <View style={st.summaryInviteBox}>
+              <Text style={st.summaryInviteLbl}>1 month VIP for a friend</Text>
+              <Text style={st.summaryInviteCode}>{referralCode}</Text>
+              <Text style={st.summaryInviteUrl}>aurasight.app/invite</Text>
+            </View>
+          </LinearGradient>
+
+          <Text style={st.shareHint}>
+            📱 Screenshot this card to share the visual. The button below sends
+            a text summary with your invite code.
+          </Text>
+
+          <TouchableOpacity
+            onPress={handleShare}
+            activeOpacity={0.85}
+            style={st.summaryShareBtn}
+          >
+            <Text style={st.summaryShareBtnText}>Share text + invite code</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function ShareOption({
+  emoji,
+  title,
+  sub,
+  onPress,
+  locked,
+}: {
+  emoji: string;
+  title: string;
+  sub: string;
+  onPress: () => void;
+  locked?: boolean;
+}) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.8}
+      style={st.sharePickerRow}
+    >
+      <Text style={{ fontSize: 22 }}>{emoji}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={st.sharePickerRowTitle}>{title}</Text>
+        <Text style={st.sharePickerRowSub}>{sub}</Text>
+      </View>
+      {locked ? (
+        <Crown size={16} color="#d97706" />
+      ) : (
+        <ChevronRight size={16} color="#9CA3AF" />
+      )}
+    </TouchableOpacity>
+  );
+}
+
 // ─── 主页面 ───────────────────────────────────────────────
 export default function ReportScreen() {
   const [data, setData] = useState<ReportData | null>(null);
@@ -698,6 +936,27 @@ export default function ReportScreen() {
   const [aiReportLoading, setAiReportLoading] = useState(false);
   const [aiModalVisible, setAiModalVisible] = useState(false);
   const [userId, setUserId] = useState<string>("");
+  // 打字机效果：逐字揭示 AI 文本，营造"现场生成"感
+  const [displayedAi, setDisplayedAi] = useState("");
+  const [shareVisible, setShareVisible] = useState(false);
+
+  // 每当 aiReport 变化，从头开始打字。为避免长文本把 JS 线程榨干：
+  // ≤500 字每 tick 1 字；>500 一次 2 字；>1500 一次 4 字。
+  useEffect(() => {
+    if (!aiReport) {
+      setDisplayedAi("");
+      return;
+    }
+    setDisplayedAi("");
+    let i = 0;
+    const step = aiReport.length > 1500 ? 4 : aiReport.length > 500 ? 2 : 1;
+    const id = setInterval(() => {
+      i = Math.min(i + step, aiReport.length);
+      setDisplayedAi(aiReport.slice(0, i));
+      if (i >= aiReport.length) clearInterval(id);
+    }, 18);
+    return () => clearInterval(id);
+  }, [aiReport]);
 
   useFocusEffect(
     useCallback(() => {
@@ -706,18 +965,26 @@ export default function ReportScreen() {
   );
 
   async function loadData() {
+    // 加超时，后端挂了也不要让 loading 永远转圈
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const id = await getUserId();
       setUserId(id);
       const mode = await AsyncStorage.getItem("@aurasight_user_mode");
       setIsVip(mode === "vip");
 
-      const res = await fetch(`${API_URL}/scans/${id}/report`);
+      const res = await fetch(`${API_URL}/scans/${id}/report`, {
+        signal: ctrl.signal,
+      });
       const json = await res.json();
       setData(json);
     } catch (err) {
       console.error("Failed to load report:", err);
+      // 超时或报错也给个 empty shape，让页面渲染 empty state 而不是 loading
+      setData((prev) => prev ?? ({} as ReportData));
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }
@@ -735,28 +1002,20 @@ export default function ReportScreen() {
     }
   }
 
-  async function handleExportPDF() {
-    if (!userId) return;
-    try {
-      const { Linking } = await import("react-native");
-      const pdfUrl = `${API_URL}/pdf/report/${userId}`;
-      await Linking.openURL(pdfUrl);
-    } catch {
-      Alert.alert("Export failed", "Could not open PDF. Please try again.");
-    }
-  }
-
   if (loading) {
     return (
-      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.center}>
-        <ActivityIndicator size="large" color={Colors.rose400} />
-      </LinearGradient>
+      <SensitiveGate>
+        <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.center}>
+          <ActivityIndicator size="large" color={Colors.rose400} />
+        </LinearGradient>
+      </SensitiveGate>
     );
   }
 
   // 空状态：没有数据时引导用户去扫描
   if (!data || data.total_scans === 0) {
     return (
+      <SensitiveGate>
       <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
         <SafeAreaView style={st.center}>
           <View style={st.emptyIconWrapper}>
@@ -777,12 +1036,14 @@ export default function ReportScreen() {
           </TouchableOpacity>
         </SafeAreaView>
       </LinearGradient>
+      </SensitiveGate>
     );
   }
 
   const isImproved = data.score_change_pct >= 0;
 
   return (
+    <SensitiveGate>
     <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
       <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
@@ -876,21 +1137,23 @@ export default function ReportScreen() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* ── PDF Export ── */}
-          {isVip && (
-            <TouchableOpacity onPress={handleExportPDF} activeOpacity={0.85} style={{
-              flexDirection: "row", alignItems: "center", gap: 10,
-              backgroundColor: "#f8fafc", borderRadius: 16, padding: 16,
-              borderWidth: 1, borderColor: "#e2e8f0", marginBottom: Spacing.lg,
-            }}>
-              <Text style={{ fontSize: 20 }}>📄</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: Colors.gray800 }}>Export PDF Report</Text>
-                <Text style={{ fontSize: FontSize.xs, color: Colors.gray400 }}>Download your 30-day skin report</Text>
-              </View>
-              <ChevronRight size={16} color={Colors.gray400} />
-            </TouchableOpacity>
-          )}
+          {/* ── Share progress card（免费功能，反哺拉新） ── */}
+          <TouchableOpacity
+            onPress={() => setShareVisible(true)}
+            activeOpacity={0.85}
+            style={st.shareCard}
+          >
+            <View style={st.shareIconBg}>
+              <Text style={{ fontSize: 20 }}>📸</Text>
+            </View>
+            <View style={st.shareInfo}>
+              <Text style={st.shareTitle}>Share my progress</Text>
+              <Text style={st.shareSub}>
+                Get a shareable image to post (no face shown)
+              </Text>
+            </View>
+            <ChevronRight size={18} color={Colors.gray400} />
+          </TouchableOpacity>
 
           {/* ── Chapter 4: VIP 深度分析 ── */}
           <Text style={st.chapterLabel}>Deep Analysis</Text>
@@ -901,6 +1164,21 @@ export default function ReportScreen() {
           />
         </ScrollView>
       </SafeAreaView>
+
+      {/* ── Share progress modal ── */}
+      {data && (
+        <ShareProgressModal
+          visible={shareVisible}
+          onClose={() => setShareVisible(false)}
+          data={data}
+          userId={userId}
+          isVip={isVip}
+          onUpgrade={() => {
+            setShareVisible(false);
+            router.push("/vip");
+          }}
+        />
+      )}
 
       {/* ── AI Report Modal ── */}
       <Modal visible={aiModalVisible} transparent animationType="slide" onRequestClose={() => setAiModalVisible(false)}>
@@ -920,19 +1198,22 @@ export default function ReportScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={st.aiModalBody} showsVerticalScrollIndicator={false}>
-              {aiReportLoading ? (
+              {aiReportLoading && !displayedAi ? (
                 <View style={st.aiLoadingBox}>
                   <ActivityIndicator size="large" color="#F43F8F" />
-                  <Text style={st.aiLoadingText}>Claude is analyzing your skin journey...</Text>
+                  <Text style={st.aiLoadingText}>
+                    Claude is analyzing your skin journey...
+                  </Text>
                 </View>
               ) : (
-                <Text style={st.aiReportText}>{aiReport}</Text>
+                <AIReportBody text={displayedAi} streaming={displayedAi.length < aiReport.length} />
               )}
             </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
     </LinearGradient>
+    </SensitiveGate>
   );
 }
 
@@ -1300,4 +1581,557 @@ const st = StyleSheet.create({
     borderRadius: Radius.full,
   },
   emptyBtnText: { color: "#fff", fontWeight: "700", fontSize: FontSize.base },
+
+  // AI 正文块（章节化渲染）
+  aiBlock: { marginBottom: Spacing.lg },
+  aiBlockTitle: {
+    fontSize: FontSize.md,
+    fontWeight: "700",
+    color: "#F43F8F",
+    marginBottom: 6,
+  },
+  aiCaret: {
+    color: "#F43F8F",
+    fontWeight: "700",
+    opacity: 0.7,
+  },
+
+  // Share 入口卡片（报告页里那个按钮）
+  shareCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    backgroundColor: "#fff",
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+    shadowColor: "#f472b6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  shareIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFF3F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareInfo: { flex: 1 },
+  shareTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  shareSub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    marginTop: 2,
+  },
+
+  // Share modal
+  shareOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.xl,
+  },
+  shareSheet: {
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+  },
+  shareClose: {
+    alignSelf: "flex-end",
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  shareImage: {
+    width: "100%",
+    aspectRatio: 9 / 16,
+    borderRadius: Radius.xxl,
+    padding: Spacing.xxl,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  shareBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    marginBottom: Spacing.xxl,
+  },
+  shareBadgeText: { color: "#fff", fontSize: 11, fontWeight: "600" },
+  shareBigNum: {
+    fontSize: 72,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -2,
+  },
+  shareBigLbl: {
+    fontSize: FontSize.md,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "600",
+    marginTop: 4,
+    marginBottom: Spacing.xxl,
+    textAlign: "center",
+  },
+  shareStats: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  shareStat: { alignItems: "center", minWidth: 56 },
+  shareStatVal: { color: "#fff", fontSize: FontSize.lg, fontWeight: "700" },
+  shareStatLbl: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  shareStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  shareTag: {
+    position: "absolute",
+    bottom: Spacing.lg,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  shareHint: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: FontSize.xs,
+    textAlign: "center",
+    marginTop: Spacing.lg,
+    lineHeight: 18,
+    paddingHorizontal: Spacing.md,
+  },
+
+  // Picker (4 选 1)
+  sharePicker: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: Radius.xxl,
+    padding: Spacing.xl,
+  },
+  sharePickerTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    color: Colors.gray800,
+    marginBottom: 4,
+  },
+  sharePickerSub: {
+    fontSize: FontSize.sm,
+    color: Colors.gray400,
+    marginBottom: Spacing.lg,
+  },
+  sharePickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: "#F3E8FF",
+  },
+  sharePickerRowTitle: {
+    fontSize: FontSize.base,
+    fontWeight: "600",
+    color: Colors.gray800,
+  },
+  sharePickerRowSub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    marginTop: 2,
+  },
+
+  // Before / After card
+  shareBACard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: Radius.xxl,
+    padding: Spacing.xl,
+    alignItems: "center",
+  },
+  shareBATitle: {
+    fontSize: FontSize.lg,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  shareBASub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    marginTop: 4,
+    marginBottom: Spacing.lg,
+  },
+  shareBARow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  shareBACell: { alignItems: "center", flex: 1 },
+  shareBAImg: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: Radius.lg,
+    backgroundColor: "#FCE7F3",
+  },
+  shareBAEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareBAEmptyText: { color: "#be185d", fontSize: 11 },
+  shareBAScore: {
+    fontSize: FontSize.xxl,
+    fontWeight: "800",
+    color: Colors.gray800,
+    marginTop: Spacing.sm,
+  },
+  shareBALabel: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    marginTop: 2,
+  },
+  shareBAArrow: { paddingHorizontal: 2 },
+  shareBADelta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: Spacing.lg,
+    backgroundColor: "#FDF2F8",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: Radius.full,
+  },
+  shareBADeltaText: { fontSize: FontSize.base, fontWeight: "700" },
+  shareBATag: {
+    marginTop: Spacing.lg,
+    color: Colors.gray400,
+    fontSize: 11,
+    fontWeight: "500",
+  },
+
+  // Streak card
+  shareStreakCard: {
+    width: "100%",
+    aspectRatio: 9 / 16,
+    borderRadius: Radius.xxl,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.xxl,
+  },
+  shareStreakEmoji: { fontSize: 64, marginBottom: Spacing.sm },
+  shareStreakBig: {
+    fontSize: 96,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -4,
+    lineHeight: 100,
+  },
+  shareStreakLbl: {
+    fontSize: FontSize.lg,
+    color: "rgba(255,255,255,0.9)",
+    fontWeight: "600",
+    marginBottom: Spacing.xxl,
+  },
+  shareStreakRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.lg,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    borderRadius: Radius.lg,
+  },
+  shareStreakCell: { alignItems: "center" },
+  shareStreakCellVal: {
+    color: "#fff",
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+  },
+  shareStreakCellLbl: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  shareStreakCellDiv: {
+    width: 1,
+    height: 28,
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  shareStreakMotto: {
+    color: "rgba(255,255,255,0.95)",
+    fontSize: FontSize.md,
+    fontWeight: "600",
+    marginTop: Spacing.xxl,
+    textAlign: "center",
+  },
+  shareStreakTag: {
+    position: "absolute",
+    bottom: Spacing.lg,
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
+  // Invite card
+  shareInviteCard: {
+    width: "100%",
+    borderRadius: Radius.xxl,
+    alignItems: "center",
+    padding: Spacing.xxl,
+  },
+  shareInviteTitle: {
+    color: "#fff",
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    marginTop: Spacing.md,
+  },
+  shareInviteSub: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: FontSize.sm,
+    textAlign: "center",
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
+  },
+  shareInviteCodeBox: {
+    backgroundColor: "rgba(255,255,255,0.2)",
+    borderRadius: Radius.lg,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xxl,
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    borderStyle: "dashed",
+  },
+  shareInviteCodeLbl: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  shareInviteCode: {
+    color: "#fff",
+    fontSize: FontSize.xxxl,
+    fontWeight: "800",
+    letterSpacing: 2,
+    marginTop: 4,
+  },
+  shareInviteBtn: {
+    backgroundColor: "#fff",
+    paddingHorizontal: Spacing.xxl,
+    paddingVertical: 12,
+    borderRadius: Radius.full,
+  },
+  shareInviteBtnText: {
+    color: "#EC4899",
+    fontSize: FontSize.base,
+    fontWeight: "700",
+  },
+
+  // Doctor card
+  shareDoctorCard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: Radius.xxl,
+    alignItems: "center",
+    padding: Spacing.xxl,
+  },
+  shareDoctorTitle: {
+    fontSize: FontSize.xl,
+    fontWeight: "700",
+    color: Colors.gray800,
+    marginTop: Spacing.md,
+    textAlign: "center",
+  },
+  shareDoctorSub: {
+    fontSize: FontSize.sm,
+    color: Colors.gray500,
+    textAlign: "center",
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
+  },
+  shareDoctorVipRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fef9c3",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    marginBottom: Spacing.lg,
+  },
+  shareDoctorVipText: {
+    color: "#92400e",
+    fontSize: FontSize.xs,
+    fontWeight: "600",
+  },
+  shareDoctorBtn: {
+    backgroundColor: "#F43F8F",
+    paddingHorizontal: Spacing.xxxl,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+  },
+  shareDoctorBtnLocked: {
+    backgroundColor: "#d97706",
+  },
+  shareDoctorBtnText: {
+    color: "#fff",
+    fontSize: FontSize.base,
+    fontWeight: "700",
+  },
+
+  // ── 统一总结卡（share progress 新版） ──
+  summaryCard: {
+    width: "100%",
+    borderRadius: Radius.xxl,
+    padding: Spacing.xl,
+    alignItems: "center",
+  },
+  summaryHeader: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.lg,
+  },
+  summaryBrand: {
+    color: "#fff",
+    fontSize: FontSize.lg,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  summaryStreakPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(255,255,255,0.22)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  summaryStreakPillText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  summaryScoreWrap: {
+    alignItems: "center",
+    marginVertical: Spacing.md,
+  },
+  summaryScoreBig: {
+    fontSize: 72,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -2,
+    lineHeight: 78,
+  },
+  summaryScoreLbl: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  summaryDeltaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: Spacing.sm,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  summaryDeltaText: {
+    color: "#fff",
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+  },
+  summaryBARow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.lg,
+    width: "100%",
+  },
+  summaryBACell: {
+    alignItems: "center",
+    flex: 1,
+  },
+  summaryBAImg: {
+    width: "100%",
+    aspectRatio: 1,
+    borderRadius: Radius.lg,
+    backgroundColor: "rgba(255,255,255,0.2)",
+  },
+  summaryBAEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryBALbl: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  summaryInviteBox: {
+    width: "100%",
+    marginTop: Spacing.lg,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    alignItems: "center",
+  },
+  summaryInviteLbl: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  summaryInviteCode: {
+    color: "#fff",
+    fontSize: FontSize.xl,
+    fontWeight: "800",
+    letterSpacing: 2,
+    marginTop: 2,
+  },
+  summaryInviteUrl: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 10,
+    marginTop: 2,
+  },
+  summaryShareBtn: {
+    marginTop: Spacing.lg,
+    backgroundColor: "#fff",
+    paddingHorizontal: Spacing.xxxl,
+    paddingVertical: 14,
+    borderRadius: Radius.full,
+  },
+  summaryShareBtnText: {
+    color: "#F43F8F",
+    fontSize: FontSize.base,
+    fontWeight: "700",
+  },
 });

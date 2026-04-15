@@ -42,6 +42,7 @@ import { getRecentScans, ScanRecord } from "../../lib/mongodb";
 import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getUserId } from "../../lib/userId";
+import { SensitiveGate } from "../../lib/sensitiveGate";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -162,26 +163,30 @@ export default function ScanDetailScreen() {
 
   if (loading) {
     return (
-      <LinearGradient
-        colors={["#fff5f5", "#ffffff"]}
-        style={styles.loadingContainer}
-      >
-        <ActivityIndicator size="large" color={Colors.rose400} />
-      </LinearGradient>
+      <SensitiveGate>
+        <LinearGradient
+          colors={["#fff5f5", "#ffffff"]}
+          style={styles.loadingContainer}
+        >
+          <ActivityIndicator size="large" color={Colors.rose400} />
+        </LinearGradient>
+      </SensitiveGate>
     );
   }
 
   if (!scan) {
     return (
-      <LinearGradient
-        colors={["#fff5f5", "#ffffff"]}
-        style={styles.loadingContainer}
-      >
-        <Text style={styles.notFound}>Scan not found</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.backLink}>Go back</Text>
-        </TouchableOpacity>
-      </LinearGradient>
+      <SensitiveGate>
+        <LinearGradient
+          colors={["#fff5f5", "#ffffff"]}
+          style={styles.loadingContainer}
+        >
+          <Text style={styles.notFound}>Scan not found</Text>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Text style={styles.backLink}>Go back</Text>
+          </TouchableOpacity>
+        </LinearGradient>
+      </SensitiveGate>
     );
   }
 
@@ -213,11 +218,98 @@ export default function ScanDetailScreen() {
     {} as Record<string, number>,
   );
 
+  // 规则式 AI 建议：broken > pustule > redness > scab
+  // 没有 LLM 调用，纯本地逻辑，所有用户都能看到基础建议
+  const suggestion = (() => {
+    const total = scan.total_count ?? 0;
+    const isFace = scan.body_zone?.startsWith("face");
+    const zone = isFace ? "face" : "body";
+    if (total === 0) {
+      return {
+        headline: "Skin looks calm right now",
+        primary:
+          "No active acne detected. Keep your current routine and stay hydrated.",
+        tips: [
+          "Maintain gentle cleansing once or twice a day.",
+          "Continue daily SPF — prevention beats treatment.",
+        ],
+      };
+    }
+    const broken = breakdown.broken ?? 0;
+    const pustule = breakdown.pustule ?? 0;
+    const redness = breakdown.redness ?? 0;
+    const scab = breakdown.scab ?? 0;
+    if (broken > 0) {
+      return {
+        headline: `${broken} broken spot${broken > 1 ? "s" : ""} need${broken > 1 ? "" : "s"} care`,
+        primary:
+          "Broken skin is vulnerable — avoid touching and keep the area clean to prevent infection.",
+        tips: [
+          "Apply a thin layer of healing ointment (e.g. Aquaphor) at night.",
+          `Skip physical exfoliation on your ${zone} until the area closes.`,
+        ],
+      };
+    }
+    if (pustule >= 3) {
+      return {
+        headline: `${pustule} active pustules detected`,
+        primary:
+          "Active inflammation — spot treat with benzoyl peroxide (2.5–5%) or salicylic acid, and resist popping.",
+        tips: [
+          "Use a clean pillowcase tonight — bacteria on fabric can worsen breakouts.",
+          `Avoid heavy ${isFace ? "makeup" : "tight clothing"} over affected areas.`,
+        ],
+      };
+    }
+    if (pustule > 0) {
+      return {
+        headline: `${pustule} pustule${pustule > 1 ? "s" : ""} to watch`,
+        primary:
+          "Mild breakout — a targeted spot treatment tonight should calm things down by tomorrow.",
+        tips: [
+          "Double cleanse if you wore sunscreen or makeup today.",
+          "Track what you ate — dairy and sugar spikes often correlate.",
+        ],
+      };
+    }
+    if (redness > 0) {
+      return {
+        headline: `${redness} inflamed area${redness > 1 ? "s" : ""}`,
+        primary:
+          "Redness suggests irritation — pause any actives (retinol, AHA/BHA) for 24–48 hours.",
+        tips: [
+          "Use a fragrance-free moisturizer to rebuild the barrier.",
+          "A cool compress for 5 min can visibly reduce redness.",
+        ],
+      };
+    }
+    if (scab > 0) {
+      return {
+        headline: `${scab} healing spot${scab > 1 ? "s" : ""}`,
+        primary:
+          "Scabs mean your skin is repairing — don't pick, and protect from UV to prevent dark marks.",
+        tips: [
+          "SPF 30+ daily is non-negotiable while healing.",
+          "Vitamin C serum in the morning can help fade post-inflammatory marks.",
+        ],
+      };
+    }
+    return {
+      headline: `${total} minor spot${total > 1 ? "s" : ""}`,
+      primary: "Overall looking stable. Keep your routine consistent.",
+      tips: [
+        "Consistency beats intensity — skip new products this week.",
+        "Log sleep and diet in your Skin Diary to spot patterns.",
+      ],
+    };
+  })();
+
   const hasDiaryContent =
     diaryNote.trim().length > 0 || selectedTags.length > 0;
 
   return (
-    // KeyboardAvoidingView 确保键盘弹出时日记输入框不被遮住
+    <SensitiveGate>
+    {/* KeyboardAvoidingView 确保键盘弹出时日记输入框不被遮住 */}
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -404,6 +496,24 @@ export default function ScanDetailScreen() {
                 </View>
               </View>
             )}
+
+            {/* AI 建议卡片：规则驱动，免费用户也能看到 */}
+            <View style={[styles.card, Shadow.card, styles.aiSuggestCard]}>
+              <View style={styles.aiSuggestHeader}>
+                <Sparkles size={16} color={Colors.rose400} />
+                <Text style={styles.cardTitle}>AI Suggestion</Text>
+              </View>
+              <Text style={styles.aiSuggestHeadline}>{suggestion.headline}</Text>
+              <Text style={styles.aiSuggestPrimary}>{suggestion.primary}</Text>
+              <View style={styles.aiSuggestTips}>
+                {suggestion.tips.map((tip, i) => (
+                  <View key={i} style={styles.aiSuggestTipRow}>
+                    <Text style={styles.aiSuggestBullet}>•</Text>
+                    <Text style={styles.aiSuggestTipText}>{tip}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
             </>
             )}
 
@@ -529,6 +639,7 @@ export default function ScanDetailScreen() {
         </SafeAreaView>
       </LinearGradient>
     </KeyboardAvoidingView>
+    </SensitiveGate>
   );
 }
 
@@ -612,6 +723,49 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: Colors.gray800,
     marginBottom: Spacing.md,
+  },
+  aiSuggestCard: {
+    backgroundColor: "#FFF7F9",
+    borderWidth: 1,
+    borderColor: "#FCE7F3",
+  },
+  aiSuggestHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  aiSuggestHeadline: {
+    fontSize: FontSize.base,
+    fontWeight: "700",
+    color: Colors.gray800,
+    marginBottom: Spacing.xs,
+  },
+  aiSuggestPrimary: {
+    fontSize: FontSize.sm,
+    color: Colors.gray700,
+    lineHeight: 20,
+    marginBottom: Spacing.md,
+  },
+  aiSuggestTips: {
+    gap: Spacing.xs,
+  },
+  aiSuggestTipRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: Spacing.sm,
+  },
+  aiSuggestBullet: {
+    fontSize: FontSize.sm,
+    color: Colors.rose400,
+    fontWeight: "700",
+    lineHeight: 20,
+  },
+  aiSuggestTipText: {
+    flex: 1,
+    fontSize: FontSize.sm,
+    color: Colors.gray600,
+    lineHeight: 20,
   },
   infoRow: { flexDirection: "row", alignItems: "center", gap: Spacing.md },
   infoText: { flex: 1 },

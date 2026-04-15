@@ -25,8 +25,6 @@ import {
   Shield,
   FileText,
   Info,
-  LogOut,
-  Trash2,
   Lock,
   Check,
 } from "lucide-react-native";
@@ -42,7 +40,22 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useUser } from "../lib/userContext";
 import { getConsent, acceptConsent, revokeConsentEverywhere } from "../lib/consent";
 import { getUserId } from "../lib/userId";
-import { ShieldCheck } from "lucide-react-native";
+import { ShieldCheck, Clock } from "lucide-react-native";
+import { useT, Lang } from "../lib/i18n";
+import {
+  ensurePermission,
+  scheduleDailyReminder,
+  disableReminder,
+  getReminderTime,
+  setReminderTime as persistReminderTime,
+  formatTime,
+} from "../lib/notifications";
+import {
+  checkBiometric,
+  setFaceIdOn as persistFaceIdOn,
+  authenticate,
+} from "../lib/biometric";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 const { width } = Dimensions.get("window");
 const APP_VERSION = "1.0.0";
@@ -107,16 +120,21 @@ function Row({
 
 export default function SettingsScreen() {
   const { user, setUser } = useUser();
+  const { t, lang, setLang } = useT();
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userMode, setUserMode] = useState<"guest" | "registered" | "vip">(
     "guest",
   );
   const [reminderOn, setReminderOn] = useState(false);
+  const [reminderHour, setReminderHour] = useState(20);
+  const [reminderMinute, setReminderMinute] = useState(0);
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [faceIdOn, setFaceIdOn] = useState(false);
   const [skinGoals, setSkinGoals] = useState<string[]>(["acne"]);
   const [dataConsentOn, setDataConsentOn] = useState(false);
   const [consentAcceptedAt, setConsentAcceptedAt] = useState<string | null>(null);
+  const [showLangSheet, setShowLangSheet] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -130,11 +148,14 @@ export default function SettingsScreen() {
     const goals = await AsyncStorage.getItem("@aurasight_skin_goals");
     const reminder = await AsyncStorage.getItem("@aurasight_reminder_on");
     const faceId = await AsyncStorage.getItem("@aurasight_faceid_on");
+    const { hour, minute } = await getReminderTime();
     setUserName(name);
     setUserEmail(email);
     setUserMode(mode as any);
     if (goals) setSkinGoals(JSON.parse(goals));
     setReminderOn(reminder === "true");
+    setReminderHour(hour);
+    setReminderMinute(minute);
     setFaceIdOn(faceId === "true");
     const consent = await getConsent();
     setDataConsentOn(consent.accepted);
@@ -185,25 +206,72 @@ export default function SettingsScreen() {
   }
 
   async function toggleReminder(val: boolean) {
-    setReminderOn(val);
-    await AsyncStorage.setItem("@aurasight_reminder_on", String(val));
-    if (val)
-      Alert.alert(
-        "🔔 Coming soon",
-        "Daily reminders will be enabled in the next update.",
-        [{ text: "Got it" }],
+    if (val) {
+      // 先请求系统通知权限
+      const ok = await ensurePermission();
+      if (!ok) {
+        Alert.alert("🔔", t("notif.permissionDenied"), [
+          { text: t("common.gotIt") },
+        ]);
+        return;
+      }
+      const id = await scheduleDailyReminder(
+        reminderHour,
+        reminderMinute,
+        t("notif.title"),
+        t("notif.body"),
       );
+      if (id) {
+        setReminderOn(true);
+      } else {
+        Alert.alert("🔔", "Failed to schedule reminder.");
+      }
+    } else {
+      await disableReminder();
+      setReminderOn(false);
+    }
+  }
+
+  async function handleTimeChange(_event: any, date?: Date) {
+    // Android 弹窗会在选完后自动关；iOS 的 spinner 留在页面上
+    if (Platform.OS === "android") setShowTimePicker(false);
+    if (!date) return;
+    const h = date.getHours();
+    const m = date.getMinutes();
+    setReminderHour(h);
+    setReminderMinute(m);
+    await persistReminderTime(h, m);
+    // 如果开关已经打开，立刻重新 schedule 到新时间
+    if (reminderOn) {
+      await scheduleDailyReminder(h, m, t("notif.title"), t("notif.body"));
+    }
   }
 
   async function toggleFaceId(val: boolean) {
-    setFaceIdOn(val);
-    await AsyncStorage.setItem("@aurasight_faceid_on", String(val));
-    if (val)
-      Alert.alert(
-        "🔒 Coming soon",
-        "Biometric lock will be enabled in the next update.",
-        [{ text: "Got it" }],
-      );
+    if (val) {
+      const cap = await checkBiometric();
+      if (cap === "no_hardware") {
+        Alert.alert("🔒", t("faceId.unavailable"), [{ text: t("common.gotIt") }]);
+        return;
+      }
+      if (cap === "not_enrolled") {
+        Alert.alert("🔒", t("faceId.notEnrolled"), [{ text: t("common.gotIt") }]);
+        return;
+      }
+      // 让用户先做一次验证，证明他们真的能用 → 避免锁死自己
+      const ok = await authenticate(t("faceId.prompt"));
+      if (!ok) return;
+      await persistFaceIdOn(true);
+      setFaceIdOn(true);
+    } else {
+      await persistFaceIdOn(false);
+      setFaceIdOn(false);
+    }
+  }
+
+  function handlePickLang(next: Lang) {
+    setLang(next);
+    setShowLangSheet(false);
   }
 
   async function toggleGoal(id: string) {
@@ -212,54 +280,6 @@ export default function SettingsScreen() {
       : [...skinGoals, id];
     setSkinGoals(next);
     await AsyncStorage.setItem("@aurasight_skin_goals", JSON.stringify(next));
-  }
-
-  async function handleLogout() {
-    Alert.alert("Sign Out", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign Out",
-        style: "destructive",
-        onPress: async () => {
-          await AsyncStorage.multiRemove([
-            "@aurasight_user_mode",
-            "@aurasight_user_name",
-            "@aurasight_user_email",
-          ]);
-          router.replace("/(tabs)/profile");
-        },
-      },
-    ]);
-  }
-
-  async function handleDeleteAccount() {
-    Alert.alert(
-      "⚠️ Delete Account",
-      "This will permanently delete your account and all data.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete permanently",
-          style: "destructive",
-          onPress: () =>
-            Alert.alert(
-              "Are you absolutely sure?",
-              "All photos and data will be lost forever.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Yes, delete everything",
-                  style: "destructive",
-                  onPress: async () => {
-                    await AsyncStorage.clear();
-                    router.replace("/(tabs)/profile");
-                  },
-                },
-              ],
-            ),
-        },
-      ],
-    );
   }
 
   const isLoggedIn = userMode !== "guest";
@@ -360,15 +380,15 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 通知 ── */}
-        <Text style={st.sectionLabel}>NOTIFICATIONS</Text>
+        <Text style={st.sectionLabel}>{t("settings.section.notifications")}</Text>
         <View style={[st.card, Shadow.card]}>
           <Row
             iconBg="#fff0f6"
             iconEl={<Bell size={15} color={Colors.rose400} />}
-            label="Daily reminder"
-            sub="Remind me to scan every day"
+            label={t("settings.dailyReminder")}
+            sub={t("settings.dailyReminder.sub")}
             isFirst
-            isLast
+            isLast={!reminderOn}
             rightEl={
               <Switch
                 value={reminderOn}
@@ -378,16 +398,52 @@ export default function SettingsScreen() {
               />
             }
           />
+          {/* 提醒时间 — 只在开启时显示 */}
+          {reminderOn && (
+            <Row
+              iconBg="#fff0f6"
+              iconEl={<Clock size={15} color={Colors.rose400} />}
+              label={t("settings.reminderTime")}
+              value={formatTime(reminderHour, reminderMinute)}
+              onPress={() => setShowTimePicker(true)}
+              isLast
+            />
+          )}
         </View>
 
+        {/* 时间选择器 — iOS 内嵌 spinner，Android 弹 modal */}
+        {showTimePicker && (
+          <View>
+            <DateTimePicker
+              value={(() => {
+                const d = new Date();
+                d.setHours(reminderHour);
+                d.setMinutes(reminderMinute);
+                return d;
+              })()}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={handleTimeChange}
+            />
+            {Platform.OS === "ios" && (
+              <TouchableOpacity
+                onPress={() => setShowTimePicker(false)}
+                style={st.timePickerDone}
+              >
+                <Text style={st.timePickerDoneText}>{t("common.done")}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {/* ── 隐私 & 安全 ── */}
-        <Text style={st.sectionLabel}>PRIVACY & SECURITY</Text>
+        <Text style={st.sectionLabel}>{t("settings.section.privacy")}</Text>
         <View style={[st.card, Shadow.card]}>
           <Row
             iconBg="#fff0f6"
             iconEl={<Lock size={15} color={Colors.rose400} />}
-            label="Face ID / Touch ID"
-            sub="Require biometrics to open"
+            label={t("settings.faceId")}
+            sub={t("settings.faceId.sub")}
             isFirst
             rightEl={
               <Switch
@@ -434,25 +490,51 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 个性化 ── */}
-        <Text style={st.sectionLabel}>PERSONALIZATION</Text>
+        <Text style={st.sectionLabel}>{t("settings.section.personalization")}</Text>
         <View style={[st.card, Shadow.card]}>
           <Row
             iconBg="#fff7ed"
             iconEl={<Globe size={15} color="#f97316" />}
-            label="Language"
-            value="English"
-            sub="中文 coming soon"
+            label={t("settings.language")}
+            value={lang === "zh" ? "中文" : "English"}
+            onPress={() => setShowLangSheet(true)}
             isFirst
           />
           <Row
             iconBg="#1f2937"
             iconEl={<Moon size={15} color="#e2e8f0" />}
-            label="Appearance"
-            value="Light"
-            sub="Dark mode coming soon"
+            label={t("settings.appearance")}
+            value={t("settings.appearance.lightLabel")}
+            sub={t("settings.appearance.darkSoon")}
             isLast
           />
         </View>
+
+        {/* 语言选择器 — 简易 inline sheet */}
+        {showLangSheet && (
+          <View style={[st.card, Shadow.card, { marginTop: -8 }]}>
+            {(["en", "zh"] as const).map((l, i) => (
+              <TouchableOpacity
+                key={l}
+                onPress={() => handlePickLang(l)}
+                style={[st.row, i === 0 && st.rowFirst, i === 1 && st.rowLast]}
+                activeOpacity={0.7}
+              >
+                <View style={[st.rowIcon, { backgroundColor: "#fff7ed" }]}>
+                  <Text style={{ fontSize: 14 }}>
+                    {l === "en" ? "🇺🇸" : "🇨🇳"}
+                  </Text>
+                </View>
+                <View style={st.rowMid}>
+                  <Text style={st.rowLabel}>
+                    {l === "en" ? "English" : "中文"}
+                  </Text>
+                </View>
+                {lang === l && <Check size={16} color={Colors.rose400} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         {/* ── 帮助 & 反馈 ── */}
         <Text style={st.sectionLabel}>HELP & FEEDBACK</Text>
@@ -525,31 +607,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* ── 危险操作 — 放最底部，红色区分，防误操作 ── */}
-        {isLoggedIn && (
-          <>
-            <Text style={st.sectionLabel}>ACCOUNT ACTIONS</Text>
-            <View style={[st.card, Shadow.card]}>
-              <Row
-                iconBg="#fff1f2"
-                iconEl={<LogOut size={15} color={Colors.red} />}
-                label="Sign Out"
-                onPress={handleLogout}
-                danger
-                isFirst
-              />
-              <Row
-                iconBg="#fff1f2"
-                iconEl={<Trash2 size={15} color={Colors.red} />}
-                label="Delete Account"
-                sub="Permanently removes all your data"
-                onPress={handleDeleteAccount}
-                danger
-                isLast
-              />
-            </View>
-          </>
-        )}
+        {/* Sign Out / Delete Account 不放这里 —— 归 Profile 页 */}
 
         <Text style={st.footer}>AuraSight v{APP_VERSION} · Made with 💗</Text>
       </ScrollView>
@@ -736,5 +794,18 @@ const st = StyleSheet.create({
     fontSize: 11,
     color: Colors.gray300,
     marginTop: 8,
+  },
+  timePickerDone: {
+    alignSelf: "center",
+    marginTop: 4,
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#b77cff",
+  },
+  timePickerDoneText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

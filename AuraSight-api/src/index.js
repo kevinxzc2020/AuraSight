@@ -666,6 +666,328 @@ app.post("/consent/revoke", async (req, res) => {
   }
 });
 
+// ─── User profile / avatar / health / referral ────────────
+// 2026-04 新增：profile 页需要的"基础功能"全家桶
+// 设计权衡：
+//  - 目前所有接口都是基于 user_id body/param 的（和注册/登录保持一致，没加 JWT/session）
+//  - 上线前务必换成有认证 token 的路由，不然任何人拿到别人的 userId 都能改资料
+//  - 体积控制：avatar base64 最大 ~8MB，借助 express.json limit 10mb
+
+/** 安全把字符串 userId 转成 ObjectId，失败返回 null */
+function toObjectId(userId) {
+  try {
+    return new ObjectId(userId);
+  } catch {
+    return null;
+  }
+}
+
+async function findUserById(userId) {
+  const oid = toObjectId(userId);
+  if (!oid) return null;
+  return usersCollection().findOne({ _id: oid });
+}
+
+/**
+ * POST /user/avatar
+ * body: { user_id, image_base64 }  (jpeg/png base64, 不带 data: 前缀)
+ * 上传到 cloudinary 并把 avatar_url 写入 users。
+ * 同一用户重复上传会在 aurasight/avatars/<uid> 下累积多张——可接受，未来再做清理。
+ */
+app.post("/user/avatar", async (req, res) => {
+  try {
+    const { user_id, image_base64 } = req.body;
+    if (!user_id || !image_base64) {
+      return res.status(400).json({ error: "user_id and image_base64 required" });
+    }
+    const oid = toObjectId(user_id);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    if (!process.env.CLOUDINARY_CLOUD_NAME) {
+      return res.status(503).json({ error: "avatar storage not configured" });
+    }
+
+    const dataUri = `data:image/jpeg;base64,${image_base64}`;
+    const result = await cloudinary.uploader.upload(dataUri, {
+      folder: `aurasight/avatars/${user_id}`,
+      resource_type: "image",
+      transformation: [
+        { width: 512, height: 512, crop: "fill", gravity: "face" },
+        { quality: "auto", fetch_format: "auto" },
+      ],
+    });
+
+    await usersCollection().updateOne(
+      { _id: oid },
+      { $set: { avatar_url: result.secure_url, avatar_updated_at: new Date() } }
+    );
+
+    res.json({ avatar_url: result.secure_url });
+  } catch (err) {
+    console.warn("avatar upload failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /user/avatar
+ * body: { user_id }
+ * 不主动删 cloudinary 文件（懒删除），只把 users.avatar_url unset
+ */
+app.delete("/user/avatar", async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    const oid = toObjectId(user_id);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    await usersCollection().updateOne(
+      { _id: oid },
+      { $unset: { avatar_url: "", avatar_updated_at: "" } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /user/:userId
+ * 拉取用户的公开资料（含 avatar_url, mode 等），不返回 password
+ */
+app.get("/user/:userId", async (req, res) => {
+  try {
+    const user = await findUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: "user not found" });
+    const { password, ...safe } = user;
+    res.json({ ...safe, id: user._id.toString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PATCH /user/profile
+ * body: { user_id, name?, email? }
+ * 改邮箱时要查重，避免和别人冲突
+ */
+app.patch("/user/profile", async (req, res) => {
+  try {
+    const { user_id, name, email } = req.body;
+    const oid = toObjectId(user_id);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    const update = {};
+    if (typeof name === "string" && name.trim()) update.name = name.trim();
+    if (typeof email === "string" && email.trim()) {
+      const lower = email.trim().toLowerCase();
+      const existing = await usersCollection().findOne({
+        email: lower,
+        _id: { $ne: oid },
+      });
+      if (existing) return res.status(409).json({ error: "Email already in use" });
+      update.email = lower;
+    }
+    if (!Object.keys(update).length) {
+      return res.status(400).json({ error: "nothing to update" });
+    }
+    update.updated_at = new Date();
+
+    await usersCollection().updateOne({ _id: oid }, { $set: update });
+    const fresh = await usersCollection().findOne({ _id: oid });
+    const { password, ...safe } = fresh;
+    res.json({ ...safe, id: fresh._id.toString() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /auth/change-password
+ * body: { user_id, old_password, new_password }
+ */
+app.post("/auth/change-password", async (req, res) => {
+  try {
+    const { user_id, old_password, new_password } = req.body;
+    if (!user_id || !old_password || !new_password) {
+      return res.status(400).json({ error: "missing fields" });
+    }
+    if (new_password.length < 6) {
+      return res.status(400).json({ error: "new password must be at least 6 characters" });
+    }
+    const user = await findUserById(user_id);
+    if (!user) return res.status(404).json({ error: "user not found" });
+
+    const valid = await bcrypt.compare(old_password, user.password);
+    if (!valid) return res.status(401).json({ error: "Current password is incorrect" });
+
+    const hash = await bcrypt.hash(new_password, BCRYPT_ROUNDS);
+    await usersCollection().updateOne(
+      { _id: user._id },
+      { $set: { password: hash, password_updated_at: new Date() } }
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Health profile ────────────────────────────────────────
+// 结构： users.health_profile = { height_cm, weight_kg, gender, birthday }
+// body-composition 页以后可以直接读这里，不用再单独存一份
+
+/**
+ * GET /user/health-profile/:userId
+ */
+app.get("/user/health-profile/:userId", async (req, res) => {
+  try {
+    const user = await findUserById(req.params.userId);
+    if (!user) return res.status(404).json({ error: "user not found" });
+    res.json(user.health_profile ?? {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PATCH /user/health-profile
+ * body: { user_id, height_cm?, weight_kg?, gender?, birthday? }
+ */
+app.patch("/user/health-profile", async (req, res) => {
+  try {
+    const { user_id, height_cm, weight_kg, gender, birthday } = req.body;
+    const oid = toObjectId(user_id);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    const current = (await usersCollection().findOne({ _id: oid }))?.health_profile ?? {};
+    const next = { ...current };
+    if (typeof height_cm === "number" && height_cm > 0) next.height_cm = height_cm;
+    if (typeof weight_kg === "number" && weight_kg > 0) next.weight_kg = weight_kg;
+    if (typeof gender === "string" && ["male", "female", "other"].includes(gender)) {
+      next.gender = gender;
+    }
+    if (typeof birthday === "string") next.birthday = birthday; // ISO yyyy-mm-dd
+
+    await usersCollection().updateOne(
+      { _id: oid },
+      { $set: { health_profile: next, health_profile_updated_at: new Date() } }
+    );
+    res.json(next);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Referral ──────────────────────────────────────────────
+// 结构：
+//  referrals = { _id, code (6-char), owner_id, created_at, redemptions: [{user_id, redeemed_at}] }
+//  索引：code (unique)
+// V1 规则：redeem 成功给双方都加 30 天 VIP。
+// 生产化待办：并发 race（两个人同时 redeem 同一个码）用事务；防自己 redeem 自己；防重复 redeem。
+
+function referralsCollection() {
+  return db.collection("referrals");
+}
+
+function genReferralCode() {
+  // 6 字符，排除 0/O/I/1 这类易混淆字符
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i = 0; i < 6; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return s;
+}
+
+/**
+ * GET /user/referral/:userId
+ * 没有就创建一条。重试几次避免 code 冲突。
+ */
+app.get("/user/referral/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const oid = toObjectId(userId);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    const existing = await referralsCollection().findOne({ owner_id: userId });
+    if (existing) {
+      return res.json({
+        code: existing.code,
+        redemptions: existing.redemptions?.length ?? 0,
+      });
+    }
+
+    let code = null;
+    for (let i = 0; i < 5; i++) {
+      const candidate = genReferralCode();
+      const dup = await referralsCollection().findOne({ code: candidate });
+      if (!dup) {
+        code = candidate;
+        break;
+      }
+    }
+    if (!code) return res.status(500).json({ error: "failed to allocate code" });
+
+    await referralsCollection().insertOne({
+      code,
+      owner_id: userId,
+      created_at: new Date(),
+      redemptions: [],
+    });
+    res.json({ code, redemptions: 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /user/referral/redeem
+ * body: { user_id, code }
+ * 给 redeemer + owner 都加 30 天 VIP。
+ */
+app.post("/user/referral/redeem", async (req, res) => {
+  try {
+    const { user_id, code } = req.body;
+    if (!user_id || !code) return res.status(400).json({ error: "missing fields" });
+
+    const oid = toObjectId(user_id);
+    if (!oid) return res.status(400).json({ error: "invalid user_id" });
+
+    const ref = await referralsCollection().findOne({ code: code.toUpperCase() });
+    if (!ref) return res.status(404).json({ error: "invalid code" });
+    if (ref.owner_id === user_id) {
+      return res.status(400).json({ error: "cannot redeem your own code" });
+    }
+    if (ref.redemptions?.some((r) => r.user_id === user_id)) {
+      return res.status(409).json({ error: "already redeemed" });
+    }
+
+    const now = new Date();
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+
+    async function extendVip(targetId) {
+      const target = await findUserById(targetId);
+      if (!target) return;
+      const curr = target.vip_expires_at ? new Date(target.vip_expires_at) : now;
+      const base = curr > now ? curr : now;
+      const next = new Date(base.getTime() + thirtyDaysMs);
+      await usersCollection().updateOne(
+        { _id: target._id },
+        { $set: { mode: "vip", vip_expires_at: next } }
+      );
+    }
+
+    await extendVip(user_id);
+    await extendVip(ref.owner_id);
+
+    await referralsCollection().updateOne(
+      { _id: ref._id },
+      { $push: { redemptions: { user_id, redeemed_at: now } } }
+    );
+
+    res.json({ success: true, vip_days_added: 30 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── 启动 ─────────────────────────────────────────────────
 connectDB().then(() => {
   app.listen(PORT, () => {
@@ -751,15 +1073,15 @@ app.get("/insights/:userId/weekly", async (req, res) => {
     const [thisWeek, lastWeek] = await Promise.all([
       db
         .collection("scans")
-        .find({ user_id: userId, scan_date: { $gte: weekStart.toISOString() } })
+        .find({ user_id: userId, scan_date: { $gte: weekStart } })
         .toArray(),
       db
         .collection("scans")
         .find({
           user_id: userId,
           scan_date: {
-            $gte: lastStart.toISOString(),
-            $lt: weekStart.toISOString(),
+            $gte: lastStart,
+            $lt: weekStart,
           },
         })
         .toArray(),
@@ -1093,89 +1415,9 @@ Return ONLY valid JSON. No markdown, no explanation, no code fences. Speak in th
 If the image is too blurry, too dark, not a close-up of skin, or the face is not clearly visible, return detections:[] with severity:"clear" and use the summary field to kindly let the user know the photo quality needs improvement for an accurate reading.`;
 }
 
-// POST /ai/report/:userId — 根据30天数据生成个性化AI报告
-// GET /pdf/report/:userId — 生成 30 天 PDF 报告并下载
-app.get("/pdf/report/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const PDFDocument = require("pdfkit");
-    const db = client.db(process.env.DB_NAME);
-
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const scans = await db.collection("scans")
-      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
-      .sort({ scan_date: 1 })
-      .toArray();
-
-    const scores = scans.map(s => s.skin_score ?? 100);
-    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-    const firstScore = scores[0] ?? 0;
-    const lastScore = scores[scores.length - 1] ?? 0;
-    const trend = lastScore > firstScore ? "↗ Improving" : lastScore < firstScore ? "↘ Declining" : "→ Stable";
-    const breakdown = scans.reduce((acc, s) => {
-      (s.detections ?? []).forEach(d => { acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1; });
-      return acc;
-    }, { pustule: 0, redness: 0, broken: 0, scab: 0 });
-
-    const doc = new PDFDocument({ margin: 50, size: "A4" });
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="AuraSight-Report-${new Date().toISOString().split("T")[0]}.pdf"`);
-    doc.pipe(res);
-
-    // ── Header ──────────────────────────────────────────────
-    doc.fontSize(24).fillColor("#C0174D").text("AuraSight", { align: "center" });
-    doc.fontSize(12).fillColor("#666").text("30-Day Skin Health Report", { align: "center" });
-    doc.fontSize(10).fillColor("#999").text(`Generated ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, { align: "center" });
-    doc.moveDown(2);
-
-    // ── Summary Stats ────────────────────────────────────────
-    doc.fontSize(14).fillColor("#1a1a1a").text("Summary", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(11).fillColor("#333");
-    doc.text(`Total scans completed: ${scans.length}`);
-    doc.text(`Average skin score: ${avgScore}/100`);
-    doc.text(`Starting score: ${firstScore}  →  Latest score: ${lastScore}`);
-    doc.text(`Overall trend: ${trend}`);
-    doc.moveDown(1.5);
-
-    // ── Acne Breakdown ───────────────────────────────────────
-    doc.fontSize(14).fillColor("#1a1a1a").text("Acne Breakdown (30 days)", { underline: true });
-    doc.moveDown(0.5);
-    doc.fontSize(11).fillColor("#333");
-    const typeLabels = { pustule: "Pustules (whiteheads)", redness: "Redness / Papules", broken: "Wounds / Open spots", scab: "Healing / Scabs" };
-    Object.entries(breakdown).forEach(([type, count]) => {
-      doc.text(`${typeLabels[type] ?? type}: ${count}`);
-    });
-    doc.moveDown(1.5);
-
-    // ── Score History ────────────────────────────────────────
-    if (scans.length > 0) {
-      doc.fontSize(14).fillColor("#1a1a1a").text("Score History", { underline: true });
-      doc.moveDown(0.5);
-      doc.fontSize(10).fillColor("#555");
-      scans.slice(-14).forEach(s => {
-        const date = new Date(s.scan_date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        const score = s.skin_score ?? 100;
-        const bar = "█".repeat(Math.round(score / 10)) + "░".repeat(10 - Math.round(score / 10));
-        doc.text(`${date}  ${bar}  ${score}`);
-      });
-      doc.moveDown(1.5);
-    }
-
-    // ── Footer ───────────────────────────────────────────────
-    doc.fontSize(9).fillColor("#aaa").text(
-      "This report is for personal wellness tracking only. Consult a dermatologist for medical advice.",
-      { align: "center" }
-    );
-
-    doc.end();
-  } catch (err) {
-    console.error("PDF export error:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+// /pdf/report/:userId 已在 2026-04 移除——对实际用户群没什么意义
+// （他们不会真的把 PDF 拿去给皮肤科医生），维护 pdfkit 体积和模板反而是负担。
+// 如需恢复请翻 git 历史。
 
 app.post("/ai/report/:userId", async (req, res) => {
   try {
@@ -1186,7 +1428,7 @@ app.post("/ai/report/:userId", async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const scans = await db.collection("scans")
-      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
+      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo } })
       .sort({ scan_date: 1 })
       .toArray();
 
@@ -1205,34 +1447,64 @@ app.post("/ai/report/:userId", async (req, res) => {
       return acc;
     }, {});
 
+    // 真实观察窗口：不能再硬写 "30 days"——用户可能只拍了几天。
+    // 让 prompt 诚实反映实际数据跨度，否则 LLM 会捏造"一个月的趋势"。
+    const firstDate = new Date(scans[0].scan_date);
+    const lastDate = new Date(scans[scans.length - 1].scan_date);
+    const spanDays = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + 1);
+    const windowLabel = spanDays === 1
+      ? "a single day"
+      : spanDays < 7
+      ? `${spanDays} days`
+      : spanDays < 14
+      ? `about 1 week`
+      : spanDays < 21
+      ? `about 2 weeks`
+      : spanDays < 28
+      ? `about 3 weeks`
+      : `${spanDays} days (up to 30)`;
+    // 推荐/预测 horizon 与数据量成比例：数据很少时不要说 "Next 30 days"
+    const horizonLabel = spanDays < 7
+      ? "Next 7 days"
+      : spanDays < 14
+      ? "Next 2 weeks"
+      : "Next 30 days";
+    const limitedData = spanDays < 7 || scans.length < 5;
+
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
       model: "claude-opus-4-6",
       max_tokens: 1500,
       messages: [{
         role: "user",
-        content: `You are AuraSight's AI dermatology consultant writing a personalized 30-day skin progress report.
+        content: `You are AuraSight's AI dermatology consultant writing a personalized skin progress report.
 
-User's data:
-- Total scans: ${scans.length} over 30 days
+User's data (observation window: ${windowLabel}, ${scans.length} scan${scans.length === 1 ? "" : "s"}):
 - Average skin score: ${avgScore}/100
 - Starting score: ${firstScore}, Latest score: ${lastScore}
 - Average spots per scan: ${avgSpots}
 - Acne type breakdown: ${JSON.stringify(breakdown)}
 - Trend: ${lastScore > firstScore ? "IMPROVING" : lastScore < firstScore ? "DECLINING" : "STABLE"}
-
+${limitedData ? "\nIMPORTANT: The observation window is short and/or scan count is low. DO NOT describe this as a month-long journey or over-interpret trends. Acknowledge the limited data honestly and focus on early patterns rather than confident conclusions.\n" : ""}
 Write a warm, honest, personalized report with these sections:
-1. **Overall Progress** (2-3 sentences about their journey)
-2. **What's Working** (1-2 specific positives based on the data)
+1. **Overall Progress** (2-3 sentences, grounded in the actual ${windowLabel} of data — no "over the past month" if the window is shorter)
+2. **What's Working** (1-2 specific positives based on the data${limitedData ? ", or note it's too early to tell if data is too thin" : ""})
 3. **Areas to Focus** (1-2 honest observations)
-4. **Next 30 Days** (3 specific, actionable recommendations)
+4. **${horizonLabel}** (3 specific, actionable recommendations appropriate for this horizon)
 5. **Encouragement** (1 motivating closing sentence)
 
-Keep the tone like a friendly dermatologist — professional but warm. Use the actual numbers. No generic advice.`,
+Keep the tone like a friendly dermatologist — professional but warm. Use the actual numbers and the actual window. No generic advice. Never claim more data than exists.`,
       }],
     });
 
-    res.json({ report: message.content[0].text, generated_at: new Date().toISOString(), scan_count: scans.length });
+    res.json({
+      report: message.content[0].text,
+      generated_at: new Date().toISOString(),
+      scan_count: scans.length,
+      span_days: spanDays,
+      window_label: windowLabel,
+      limited_data: limitedData,
+    });
   } catch (err) {
     console.error("AI report error:", err.message);
     res.status(500).json({ error: err.message });
@@ -1340,7 +1612,7 @@ app.post("/ai/deep-analysis/:userId", async (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const scans = await db.collection("scans")
-      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo.toISOString() } })
+      .find({ user_id: userId, scan_date: { $gte: thirtyDaysAgo } })
       .sort({ scan_date: 1 })
       .toArray();
 
@@ -1376,15 +1648,38 @@ app.post("/ai/deep-analysis/:userId", async (req, res) => {
       (s.detections ?? []).forEach(d => { acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1; });
       return acc;
     }, {});
+
+    // 真实观察窗口：用户可能只拍了几天，不能硬说 "30 days"
+    const firstDate = new Date(scans[0].scan_date);
+    const lastDate = new Date(scans[scans.length - 1].scan_date);
+    const spanDays = Math.max(1, Math.round((lastDate - firstDate) / 86400000) + 1);
+    const windowLabel = spanDays < 7
+      ? `${spanDays} day${spanDays === 1 ? "" : "s"}`
+      : spanDays < 14
+      ? "about 1 week"
+      : spanDays < 21
+      ? "about 2 weeks"
+      : spanDays < 28
+      ? "about 3 weeks"
+      : `${spanDays} days (up to 30)`;
+    const horizonLabel = spanDays < 7
+      ? "next 7 days"
+      : spanDays < 14
+      ? "next 2 weeks"
+      : "next 30 days";
+    const limitedData = spanDays < 7 || scans.length < 5;
+
+    // 周趋势只分桶到实际覆盖的周数，避免空周污染
+    const totalWeeks = Math.min(4, Math.max(1, Math.ceil(spanDays / 7)));
     const weeklyTrend = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < totalWeeks; i++) {
       const week = scans.filter(s => {
         const daysAgo = (Date.now() - new Date(s.scan_date).getTime()) / 86400000;
         return daysAgo >= i * 7 && daysAgo < (i + 1) * 7;
       });
       if (week.length > 0) {
         weeklyTrend.unshift({
-          week: `Week ${4 - i}`,
+          week: `Week ${totalWeeks - i}`,
           avg: Math.round(week.reduce((s, r) => s + (r.skin_score ?? 100), 0) / week.length),
           scans: week.length
         });
@@ -1399,34 +1694,35 @@ app.post("/ai/deep-analysis/:userId", async (req, res) => {
         role: "user",
         content: `You are AuraSight's senior AI skin consultant performing a deep lifestyle correlation analysis.
 
-SKIN DATA (30 days):
-- ${scans.length} scans, overall avg score: ${Math.round(overallAvg)}/100
+SKIN DATA (observation window: ${windowLabel}):
+- ${scans.length} scan${scans.length === 1 ? "" : "s"}, overall avg score: ${Math.round(overallAvg)}/100
 - First score: ${scores[0]}, Latest score: ${scores[scores.length - 1]}
 - Acne breakdown: ${JSON.stringify(breakdown)}
-- Weekly trend: ${JSON.stringify(weeklyTrend)}
+- Weekly trend (only includes weeks with data): ${JSON.stringify(weeklyTrend)}
 
 LIFESTYLE DIARY CORRELATIONS:
 ${tagImpact.length > 0
   ? tagImpact.map(t => `- "${t.tag}": appeared ${t.count}x, avg skin score ${t.avg_score} (${t.impact > 0 ? '+' : ''}${t.impact} vs baseline)`).join('\n')
   : '- No diary tags recorded yet'}
-
+${limitedData ? "\nIMPORTANT: Observation window is short and/or scan count is low. Do NOT pretend this is a month of data. Flag low confidence, avoid over-interpreting tag correlations that only appeared a handful of times, and scale all predictions/experiments to the available window.\n" : ""}
 Based on this data, provide a deep analysis in this exact JSON format:
 {
-  "headline": "One punchy headline summarizing their skin journey",
-  "overall_trend": "improving | declining | stable | fluctuating",
+  "headline": "One punchy headline summarizing their skin journey so far (match the actual window — no '30-day journey' if the window is shorter)",
+  "overall_trend": "improving | declining | stable | fluctuating | too_early",
+  "data_confidence": "high | medium | low (low if window < 7 days or scans < 5)",
   "lifestyle_insights": [
     {
       "factor": "factor name (e.g. Sleep quality, Hydration, Diet, Stress)",
       "finding": "1-2 sentence finding based on diary data or inferred from patterns",
       "impact": "positive | negative | neutral",
-      "score_effect": "+X or -X points on skin score (estimate)"
+      "score_effect": "+X or -X points on skin score (estimate; omit if confidence is low)"
     }
   ],
-  "best_habit": "The single most beneficial habit identified from their data",
-  "worst_habit": "The single most harmful pattern (be honest but kind)",
-  "weekly_pattern": "Any day-of-week or weekly pattern observed",
-  "next_experiment": "One specific lifestyle experiment to try next 30 days",
-  "prediction": "If they maintain current trajectory, skin score in 30 days will be approximately X"
+  "best_habit": "The single most beneficial habit identified from their data (or null if too early)",
+  "worst_habit": "The single most harmful pattern (or null if too early)",
+  "weekly_pattern": "Any day-of-week or weekly pattern observed (or null if data < 1 week)",
+  "next_experiment": "One specific lifestyle experiment to try in the ${horizonLabel}",
+  "prediction": "If they maintain current trajectory, skin score in the ${horizonLabel} will be approximately X (or 'too early to predict' if confidence is low)"
 }`
       }]
     });
@@ -1441,6 +1737,9 @@ Based on this data, provide a deep analysis in this exact JSON format:
       overall_avg: Math.round(overallAvg),
       weekly_trend: weeklyTrend,
       scan_count: scans.length,
+      span_days: spanDays,        // 真实观察窗口（天）
+      window_label: windowLabel,  // 给 UI 用的可读文案
+      limited_data: limitedData,  // UI 可据此显示低置信度 badge
       generated_at: new Date().toISOString(),
     });
   } catch (err) {

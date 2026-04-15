@@ -23,6 +23,7 @@ import {
   RotateCcw,
   ImageIcon,
   Timer,
+  Activity,
 } from "lucide-react-native";
 import {
   Colors,
@@ -56,10 +57,10 @@ const TYPE_DESC: Record<AcneType, string> = {
 const DRAWER_H_FACE = 170;
 const DRAWER_H_BODY = 170;
 
+// 面部分区简化：forehead / L.Cheek / R.Cheek 用处不大（用户自己能看清的位置），
+// 只保留 Chin / Nose —— 这两个是典型痘痘高发区，值得单独标注。
+// BodyZone 类型里仍保留那三个枚举，避免已有的历史记录解析失败。
 const ZONES: { label: string; value: BodyZone }[] = [
-  { label: "Forehead", value: "face_forehead" },
-  { label: "L. Cheek", value: "face_cheek_l" },
-  { label: "R. Cheek", value: "face_cheek_r" },
   { label: "Chin", value: "face_chin" },
   { label: "Nose", value: "face_nose" },
 ];
@@ -499,6 +500,26 @@ export default function CameraScreen() {
               </Text>
             </View>
           </View>
+
+          {/* Body composition 入口：只在 body 模式显示，点击进入 Body Composition 页面
+              VIP 用户不显示 "VIP" 标签（他们已经付费了） */}
+          {mode === "body" && countdown === null && (
+            <TouchableOpacity
+              style={styles.bodyCompEntry}
+              onPress={() => router.push("/body-composition")}
+              activeOpacity={0.85}
+            >
+              <Activity size={14} color="#fff" />
+              <Text style={styles.bodyCompEntryText}>
+                Body Composition
+              </Text>
+              {!isVIP && (
+                <View style={styles.bodyCompVipTag}>
+                  <Text style={styles.bodyCompVipTagText}>VIP</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
 
           {/* 翻转按钮 */}
           <TouchableOpacity
@@ -980,6 +1001,42 @@ const styles = StyleSheet.create({
   },
   hintGreen: { backgroundColor: "rgba(5,150,105,0.75)" },
   hintText: { color: "#fff", fontSize: FontSize.xs, fontWeight: "500" },
+
+  bodyCompEntry: {
+    position: "absolute",
+    bottom: 60,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(183,124,255,0.92)",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: Radius.full,
+    shadowColor: "#b77cff",
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
+  bodyCompEntryText: {
+    color: "#fff",
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+  },
+  bodyCompVipTag: {
+    backgroundColor: "rgba(255,255,255,0.25)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: Radius.sm,
+    marginLeft: 2,
+  },
+  bodyCompVipTagText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
 
   flipButton: {
     position: "absolute",

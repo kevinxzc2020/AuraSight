@@ -34,6 +34,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { SwipeableScanCard } from "../../components/SwipeableScanCard";
 import { getUserId } from "../../lib/userId";
+import { SensitiveGate } from "../../lib/sensitiveGate";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -398,23 +399,26 @@ export default function HistoryScreen() {
     )
     .slice(0, 15);
 
-  if (loading) {
-    return (
-      <LinearGradient
-        colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
-        style={st.loadingContainer}
-      >
-        <ActivityIndicator size="large" color={Colors.rose400} />
-      </LinearGradient>
-    );
-  }
-
   // Card has marginHorizontal:20 + padding:16 on each side → inner width = width - 72
   const calInnerW = width - Spacing.xl * 2 - Spacing.lg * 2;
   const cellW = calInnerW / 7;
   const cellSize = Math.floor(cellW); // cell height = cell width → square cells
 
+  if (loading) {
+    return (
+      <SensitiveGate>
+        <LinearGradient
+          colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+          style={st.loadingContainer}
+        >
+          <ActivityIndicator size="large" color={Colors.rose400} />
+        </LinearGradient>
+      </SensitiveGate>
+    );
+  }
+
   return (
+    <SensitiveGate>
     <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
       <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
@@ -639,6 +643,7 @@ export default function HistoryScreen() {
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
+    </SensitiveGate>
   );
 }
 

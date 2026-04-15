@@ -25,6 +25,8 @@ import {
   X,
   Star,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react-native";
 import {
   Colors,
@@ -34,7 +36,8 @@ import {
   FontSize,
   Shadow,
 } from "../../constants/theme";
-import { getStats, StatsResult, AcneType } from "../../lib/mongodb";
+import { getStats, StatsResult, AcneType, ScanRecord } from "../../lib/mongodb";
+import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import { getDailyAdvice } from "../../lib/ai";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
@@ -296,11 +299,13 @@ function SpotsModal({
   onClose,
   latestCount,
   breakdown,
+  latestScan,
 }: {
   visible: boolean;
   onClose: () => void;
   latestCount: number;
   breakdown: Record<AcneType, number> | null;
+  latestScan: ScanRecord | null;
 }) {
   const total = latestCount;
   const hasBreakdown = breakdown && Object.values(breakdown).some((v) => v > 0);
@@ -336,6 +341,26 @@ function SpotsModal({
               <Text style={[styles.severityText, { color: severityColor }]}>{severity}</Text>
             </View>
           </LinearGradient>
+
+          {/* 最近一次扫描的照片 + 痘痘高亮框 */}
+          {latestScan?.image_uri && latestScan.detections?.length > 0 && (
+            <View style={styles.modalPhotoWrap}>
+              <Text style={styles.modalPhotoLabel}>
+                Last scan · {new Date(latestScan.scan_date).toLocaleDateString()}
+              </Text>
+              <AnnotatedSkinImage
+                imageUri={latestScan.image_uri}
+                detections={latestScan.detections}
+                displayWidth={width - 48 - 32}
+                displayHeight={(width - 48 - 32) * 0.9}
+                borderRadius={14}
+                showLabels={false}
+              />
+              <Text style={styles.modalPhotoHint}>
+                {latestScan.detections.length} spot{latestScan.detections.length === 1 ? "" : "s"} detected · colored markers show location &amp; type
+              </Text>
+            </View>
+          )}
 
           {/* Breakdown chart */}
           {hasBreakdown ? (
@@ -494,7 +519,7 @@ interface InsightData {
   insight_text: string;
 }
 
-function WeeklyInsightCard({ insight }: { insight: InsightData | null }) {
+function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; isVip: boolean }) {
   if (!insight) return null;
   const hasImproved = (insight.score_change ?? 0) > 0;
   const hasDeclined = (insight.score_change ?? 0) < 0;
@@ -507,9 +532,11 @@ function WeeklyInsightCard({ insight }: { insight: InsightData | null }) {
         </LinearGradient>
         <View style={styles.insightTitleWrap}>
           <Text style={styles.insightTitle}>Weekly Insight</Text>
-          <View style={styles.freePill}>
-            <Text style={styles.freePillText}>✓ Free</Text>
-          </View>
+          {!isVip && (
+            <View style={styles.freePill}>
+              <Text style={styles.freePillText}>✓ Free</Text>
+            </View>
+          )}
         </View>
         {insight.scans_this_week > 0 && (
           <View style={styles.scansBadge}>
@@ -544,9 +571,11 @@ function WeeklyInsightCard({ insight }: { insight: InsightData | null }) {
         </View>
       )}
 
-      <TouchableOpacity onPress={() => router.push("/vip")} style={styles.insightCta}>
-        <Text style={styles.insightCtaText}>Unlock full report → VIP ✦</Text>
-      </TouchableOpacity>
+      {!isVip && (
+        <TouchableOpacity onPress={() => router.push("/vip")} style={styles.insightCta}>
+          <Text style={styles.insightCtaText}>Unlock full report → VIP ✦</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -567,9 +596,13 @@ export default function HomeScreen() {
   const [insight, setInsight] = useState<InsightData | null>(null);
   const [extraDone, setExtraDone] = useState<Record<string, boolean>>({});
   const [spotsModalVisible, setSpotsModalVisible] = useState(false);
+  const [latestFaceScan, setLatestFaceScan] = useState<ScanRecord | null>(null);
   const [moodModalVisible, setMoodModalVisible] = useState(false);
   const [tipModalVisible, setTipModalVisible] = useState(false);
   const [dailyAdvice, setDailyAdvice] = useState<string>("");
+  // Daily check-in 折叠态：默认收起（用户说"隐藏式"）。
+  // 状态持久化到 AsyncStorage，避免每次刷新又被用户手动展开。
+  const [checkinExpanded, setCheckinExpanded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -591,10 +624,16 @@ export default function HomeScreen() {
       const extraRaw = await AsyncStorage.getItem(`@aurasight_extra_tasks_${todayKey()}`);
       if (extraRaw) setExtraDone(JSON.parse(extraRaw));
 
+      // Load user's preferred check-in collapsed/expanded state
+      const expandedRaw = await AsyncStorage.getItem("@aurasight_checkin_expanded");
+      if (expandedRaw === "true") setCheckinExpanded(true);
+
       const [statsData, ptsRes, scansRes, insightRes] = await Promise.all([
         getStats(id),
         fetch(`${API_URL}/points/${id}`).then((r) => r.json()),
-        fetch(`${API_URL}/scans/${id}?days=2`).then((r) => r.json()),
+        // 拉 30 天是为了能在 SpotsModal 里显示最近一次有照片的扫描。
+        // 只拉 2 天会导致今天没扫的用户看到空 state，即便他们 3 天前刚拍过。
+        fetch(`${API_URL}/scans/${id}?days=30`).then((r) => r.json()),
         fetch(`${API_URL}/insights/${id}/weekly`).then((r) => r.json()).catch(() => null),
       ]);
 
@@ -617,6 +656,12 @@ export default function HomeScreen() {
       );
       setYesterdayFace(yScans.find((s) => !["back", "chest"].includes(s.body_zone))?.image_uri ?? null);
       setYesterdayBody(yScans.find((s) => ["back", "chest"].includes(s.body_zone))?.image_uri ?? null);
+
+      // 最近一次面部扫描（带照片+detections），喂给 SpotsModal 显示痘痘高亮
+      const latestFace = (scansRes as ScanRecord[]).find(
+        (s) => !["back", "chest"].includes(s.body_zone) && s.image_uri,
+      ) ?? null;
+      setLatestFaceScan(latestFace);
     } catch (err) {
       console.error("Failed to load:", err);
     }
@@ -691,12 +736,67 @@ export default function HomeScreen() {
             scoreChange={scoreChange}
           />
 
-          {/* ── Daily Check-in ── */}
+          {/* ── Daily Check-in（隐藏式：默认收起，点击展开） ── */}
+          {(() => {
+            const mainDone = (faceDone ? 1 : 0) + (bodyDone ? 1 : 0);
+            const extraDoneCount = Object.values(extraDone).filter(Boolean).length;
+            const totalExtra = EXTRA_TASKS.length;
+            const allMainDone = faceDone && bodyDone;
+            return (
           <View style={[styles.card, styles.checkinCard]}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Daily Check-in</Text>
-              <Text style={styles.cardHeaderPts}>{displayTodayPts} pts today</Text>
-            </View>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={async () => {
+                const next = !checkinExpanded;
+                setCheckinExpanded(next);
+                await AsyncStorage.setItem("@aurasight_checkin_expanded", String(next));
+              }}
+              style={styles.checkinHeaderRow}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardTitle}>Daily Check-in</Text>
+                {/* 折叠态摘要行：一眼看完成进度 */}
+                {!checkinExpanded && (
+                  <Text style={styles.checkinSummary}>
+                    {allMainDone ? "✓ Done today" : `${mainDone}/2 main`}
+                    {totalExtra > 0 ? ` · ${extraDoneCount}/${totalExtra} bonus` : ""}
+                    {" · "}{displayTodayPts} pts
+                  </Text>
+                )}
+              </View>
+              {checkinExpanded ? (
+                <ChevronUp size={18} color={Colors.gray400} />
+              ) : (
+                <ChevronDown size={18} color={Colors.gray400} />
+              )}
+            </TouchableOpacity>
+            {checkinExpanded && (
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardHeaderPts}>{displayTodayPts} pts today</Text>
+              </View>
+            )}
+
+            {checkinExpanded && (
+            <>
+
+            {/* 两项都完成时的庆祝横幅 */}
+            {faceDone && bodyDone && (
+              <LinearGradient
+                colors={["#10B981", "#34D399"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.celebrateBanner}
+              >
+                <Text style={styles.celebrateEmoji}>🎉</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.celebrateTitle}>Daily check-in complete!</Text>
+                  <Text style={styles.celebrateSub}>
+                    +100 pts earned · streak protected today
+                  </Text>
+                </View>
+                <Text style={styles.celebrateCheck}>✓</Text>
+              </LinearGradient>
+            )}
 
             {/* Face Task */}
             <View style={styles.taskRow}>
@@ -818,7 +918,11 @@ export default function HomeScreen() {
                 </React.Fragment>
               );
             })}
+            </>
+            )}
           </View>
+            );
+          })()}
 
           {/* ── Stats Row ── */}
           <View style={styles.statsRow}>
@@ -866,7 +970,7 @@ export default function HomeScreen() {
           </View>
 
           {/* ── Weekly Insight ── */}
-          <WeeklyInsightCard insight={insight} />
+          <WeeklyInsightCard insight={insight} isVip={isVip} />
 
           {/* ── AI Daily Advice ── */}
           <TouchableOpacity
@@ -913,6 +1017,7 @@ export default function HomeScreen() {
         onClose={() => setSpotsModalVisible(false)}
         latestCount={stats?.latest_count ?? 0}
         breakdown={stats?.acne_breakdown ?? null}
+        latestScan={latestFaceScan}
       />
 
       {/* ── Mood Picker Modal ── */}
@@ -1065,6 +1170,35 @@ const styles = StyleSheet.create({
     borderColor: "#F9E0EE",
   },
   checkinCard: {},
+  checkinHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  checkinSummary: {
+    fontSize: 12,
+    color: Colors.gray500,
+    marginTop: 2,
+  },
+  celebrateBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    marginBottom: 14,
+    shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  celebrateEmoji: { fontSize: 24 },
+  celebrateTitle: { fontSize: 13, fontWeight: "700", color: "#fff" },
+  celebrateSub: { fontSize: 11, color: "rgba(255,255,255,0.9)", marginTop: 1 },
+  celebrateCheck: { fontSize: 22, color: "#fff", fontWeight: "800" },
   cardHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1254,6 +1388,24 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalHeroNum: { fontSize: 56, fontWeight: "800", color: "#FB7185", lineHeight: 60 },
+  modalPhotoWrap: {
+    marginHorizontal: 24,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  modalPhotoLabel: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    fontWeight: "600",
+    alignSelf: "flex-start",
+    marginBottom: 8,
+  },
+  modalPhotoHint: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    marginTop: 8,
+    textAlign: "center",
+  },
   modalHeroLbl: { fontSize: 13, color: "#9CA3AF", marginBottom: 10 },
   severityPill: {
     flexDirection: "row",

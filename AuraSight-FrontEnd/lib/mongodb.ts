@@ -70,22 +70,34 @@ const CACHE_PENDING_KEY = "@aurasight_pending";
 
 // ─── HTTP 工具 ────────────────────────────────────────────
 
+// fetch 默认没有超时——后端如果挂了或手机连不到 API_URL，
+// 请求会一直 pending，调用端 setLoading(false) 永远不会被调用，
+// 页面上的现象就是"一直在 loading"。
+// 包一层 AbortController 超时，超时后抛错，上层 catch 走本地缓存兜底。
 async function apiCall<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: object,
+  timeoutMs = 8000,
 ): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method,
-    headers: { "Content-Type": "application/json" },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
 
-  if (!response.ok) {
-    throw new Error(`API Error ${response.status}: ${await response.text()}`);
+    if (!response.ok) {
+      throw new Error(`API Error ${response.status}: ${await response.text()}`);
+    }
+
+    return response.json();
+  } finally {
+    clearTimeout(timer);
   }
-
-  return response.json();
 }
 
 // ─── 工具函数 ─────────────────────────────────────────────

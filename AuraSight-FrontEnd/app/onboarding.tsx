@@ -775,27 +775,37 @@ export default function OnboardingScreen() {
 
       {/* Footer: dots + CTA */}
       <SafeAreaView style={st.footer}>
-        {/* Sliding capsule indicator — 4 fixed base dots + 1 capsule that tracks scrollX */}
+        {/* Per-dot scaleX animation — active dot stretches into a capsule */}
         <View style={st.dotRow}>
-          {PAGES.map((_, i) => (
-            <View key={i} style={st.dotBase} />
-          ))}
-          <Animated.View
-            style={[
-              st.dotCapsule,
-              {
-                transform: [
+          {PAGES.map((_, i) => {
+            const inputRange = [
+              (i - 1) * width,
+              i * width,
+              (i + 1) * width,
+            ];
+            const scaleX = scrollX.interpolate({
+              inputRange,
+              outputRange: [1, 3, 1],
+              extrapolate: "clamp",
+            });
+            const opacity = scrollX.interpolate({
+              inputRange,
+              outputRange: [0.3, 1, 0.3],
+              extrapolate: "clamp",
+            });
+            return (
+              <Animated.View
+                key={i}
+                style={[
+                  st.dotBase,
                   {
-                    translateX: scrollX.interpolate({
-                      inputRange: [0, (PAGES.length - 1) * width],
-                      outputRange: [0, (PAGES.length - 1) * (DOT_SIZE + DOT_GAP)],
-                      extrapolate: "clamp",
-                    }),
+                    opacity,
+                    transform: [{ scaleX }],
                   },
-                ],
-              },
-            ]}
-          />
+                ]}
+              />
+            );
+          })}
         </View>
 
         <View style={st.btnArea}>
@@ -972,21 +982,8 @@ const st = StyleSheet.create({
     width: DOT_SIZE,
     height: DOT_SIZE,
     borderRadius: DOT_SIZE / 2,
-    backgroundColor: "rgba(26,21,48,0.18)",
-    marginHorizontal: DOT_GAP / 2,
-  },
-  dotCapsule: {
-    position: "absolute",
-    left: DOT_GAP / 2,
-    top: 2,
-    width: DOT_SIZE,
-    height: DOT_SIZE,
-    borderRadius: DOT_SIZE / 2,
     backgroundColor: "#b77cff",
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.5,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
+    marginHorizontal: DOT_GAP / 2,
   },
   btnArea: {
     width: "100%",
