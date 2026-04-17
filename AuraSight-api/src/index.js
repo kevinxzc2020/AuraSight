@@ -666,6 +666,43 @@ app.post("/consent/revoke", async (req, res) => {
   }
 });
 
+/**
+ * POST /auth/forgot-password
+ * body: { email }
+ * V1 实现：生成 6 位临时数字码，bcrypt 存入 users.password，
+ * 直接返回给前端显示（用户用这个码当新密码登录，之后自己改密码）。
+ * V2 待办：接 SendGrid / SES 把码发到邮箱，不在 response 里明文返回。
+ */
+app.post("/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "email required" });
+
+    const user = await usersCollection().findOne({ email: email.toLowerCase() });
+    if (!user) {
+      // 安全：不暴露"邮箱不存在"——统一返回 200
+      return res.json({ success: true, message: "If that email is registered, a temporary password has been generated." });
+    }
+
+    // 6 位纯数字临时密码
+    const tempCode = String(Math.floor(100000 + Math.random() * 900000));
+    const hash = await bcrypt.hash(tempCode, BCRYPT_ROUNDS);
+    await usersCollection().updateOne(
+      { _id: user._id },
+      { $set: { password: hash, password_reset_at: new Date() } }
+    );
+
+    // V1：直接返回临时密码（仅开发期/MVP，生产要走邮件）
+    res.json({
+      success: true,
+      temp_password: tempCode,
+      message: "Temporary password generated. Use it to sign in, then change your password.",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── User profile / avatar / health / referral ────────────
 // 2026-04 新增：profile 页需要的"基础功能"全家桶
 // 设计权衡：

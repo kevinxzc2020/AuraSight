@@ -110,3 +110,65 @@ export const StatusColors = {
   healing: "#a78bfa",  // purple — recovering/scarring
   breakout:"#fb7185",  // red
 };
+
+// ─── Dark mode ──────────────────────────────────────────────
+// 暗色调色板：与 Colors 同 key，方便 useAppTheme() 直接替换。
+// 设计思路：保留 rose accent 色系但降低饱和度/亮度，中性色全部反转。
+export const DarkColors: typeof Colors = {
+  roseLight: "#2a1520",
+  rose100: "#3d1a2a",
+  rose200: "#5c2240",
+  rose300: "#a44070",
+  rose400: "#f472b6", // accent 保持不变
+  rose500: "#fb7185",
+  rose600: "#e11d48",
+
+  pink300: "#a44070",
+  pink400: "#f472b6",
+
+  emerald: "#34d399",
+  amber: "#fbbf24",
+  red: "#fb7185",
+
+  white: "#1a1a2e",
+  gray50: "#16161e",
+  gray100: "#1e1e2a",
+  gray200: "#2a2a3a",
+  gray300: "#3d3d50",
+  gray400: "#9ca3af",
+  gray500: "#a1a7b3",
+  gray600: "#c9cdd4",
+  gray700: "#dce0e5",
+  gray800: "#eef0f2",
+  gray900: "#f8f9fa",
+
+  background: "#0f0f1a",
+  cardBg: "#1a1a2e",
+  darkBg: "#111827",
+};
+
+export const DarkGradients: typeof Gradients = {
+  roseMain: ["#f472b6", "#fb7185"] as const,
+  roseLight: ["#1a1520", "#0f0f1a"] as const,
+  pinkRose: ["#2a1520", "#1a1520"] as const,
+  emeraldTeal: ["#34d399", "#2dd4bf"] as const,
+  amberOrange: ["#fbbf24", "#fb923c"] as const,
+  darkCamera: ["#1f2937", "#111827"] as const,
+};
+
+export const DarkShadow: typeof Shadow = {
+  card: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  button: {
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+};

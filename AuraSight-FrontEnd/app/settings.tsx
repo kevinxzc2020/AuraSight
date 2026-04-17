@@ -10,6 +10,8 @@ import {
   Linking,
   Platform,
   Dimensions,
+  Modal,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -36,6 +38,7 @@ import {
   FontSize,
   Shadow,
 } from "../constants/theme";
+import { useAppTheme, ThemeMode } from "../lib/themeContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useUser } from "../lib/userContext";
 import { getConsent, acceptConsent, revokeConsentEverywhere } from "../lib/consent";
@@ -92,6 +95,7 @@ function Row({
   isFirst?: boolean;
   isLast?: boolean;
 }) {
+  const { colors: RC, isDark: dk } = useAppTheme();
   return (
     <>
       <TouchableOpacity
@@ -102,18 +106,18 @@ function Row({
       >
         <View style={[st.rowIcon, { backgroundColor: iconBg }]}>{iconEl}</View>
         <View style={st.rowMid}>
-          <Text style={[st.rowLabel, danger && st.rowLabelDanger]}>
+          <Text style={[st.rowLabel, danger && st.rowLabelDanger, dk && { color: RC.gray900 }]}>
             {label}
           </Text>
-          {sub && <Text style={st.rowSub}>{sub}</Text>}
+          {sub && <Text style={[st.rowSub, dk && { color: RC.gray400 }]}>{sub}</Text>}
         </View>
-        {value && <Text style={st.rowValue}>{value}</Text>}
+        {value && <Text style={[st.rowValue, dk && { color: RC.gray400 }]}>{value}</Text>}
         {rightEl}
         {onPress && !rightEl && (
-          <ChevronRight size={15} color={Colors.gray200} />
+          <ChevronRight size={15} color={RC.gray300} />
         )}
       </TouchableOpacity>
-      {!isLast && <View style={st.separator} />}
+      {!isLast && <View style={[st.separator, dk && { backgroundColor: RC.gray200 }]} />}
     </>
   );
 }
@@ -121,6 +125,8 @@ function Row({
 export default function SettingsScreen() {
   const { user, setUser } = useUser();
   const { t, lang, setLang } = useT();
+  const { mode: themeMode, setMode: setThemeMode, colors: C, shadow: S, isDark } = useAppTheme();
+  const [showThemeSheet, setShowThemeSheet] = useState(false);
   const [userName, setUserName] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userMode, setUserMode] = useState<"guest" | "registered" | "vip">(
@@ -282,6 +288,9 @@ export default function SettingsScreen() {
     await AsyncStorage.setItem("@aurasight_skin_goals", JSON.stringify(next));
   }
 
+  // Dark mode helper for card overrides
+  const dkCard = { backgroundColor: C.cardBg, borderColor: C.gray200 } as const;
+
   const isLoggedIn = userMode !== "guest";
   const initials = userName ? userName.charAt(0).toUpperCase() : "?";
   const modeLabel =
@@ -292,7 +301,7 @@ export default function SettingsScreen() {
   return (
     <View style={st.root}>
       <LinearGradient
-        colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+        colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
         style={StyleSheet.absoluteFillObject}
       />
 
@@ -349,9 +358,9 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── 皮肤目标 ── */}
-        <Text style={st.sectionLabel}>SKIN GOALS</Text>
-        <View style={[st.card, Shadow.card]}>
-          <Text style={st.cardNote}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>SKIN GOALS</Text>
+        <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+          <Text style={[st.cardNote, isDark && { color: C.gray400 }]}>
             Tell AI what you care about most — it tailors your weekly reports.
           </Text>
           <View style={st.goalGrid}>
@@ -362,7 +371,7 @@ export default function SettingsScreen() {
                   key={g.id}
                   onPress={() => toggleGoal(g.id)}
                   activeOpacity={0.7}
-                  style={[st.goalChip, on && st.goalChipOn]}
+                  style={[st.goalChip, on && st.goalChipOn, isDark && { backgroundColor: C.gray200, borderColor: C.gray300 }, on && isDark && { backgroundColor: "#2a1520", borderColor: Colors.rose300 }]}
                 >
                   {on && (
                     <View style={st.goalCheck}>
@@ -370,7 +379,7 @@ export default function SettingsScreen() {
                     </View>
                   )}
                   <Text style={st.goalEmoji}>{g.emoji}</Text>
-                  <Text style={[st.goalLabel, on && st.goalLabelOn]}>
+                  <Text style={[st.goalLabel, on && st.goalLabelOn, isDark && !on && { color: C.gray500 }]}>
                     {g.label}
                   </Text>
                 </TouchableOpacity>
@@ -380,10 +389,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 通知 ── */}
-        <Text style={st.sectionLabel}>{t("settings.section.notifications")}</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.notifications")}</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#fff0f6"
+            iconBg={isDark ? C.gray200 : "#fff0f6"}
             iconEl={<Bell size={15} color={Colors.rose400} />}
             label={t("settings.dailyReminder")}
             sub={t("settings.dailyReminder.sub")}
@@ -393,15 +402,15 @@ export default function SettingsScreen() {
               <Switch
                 value={reminderOn}
                 onValueChange={toggleReminder}
-                trackColor={{ false: Colors.gray200, true: Colors.rose300 }}
-                thumbColor={reminderOn ? Colors.rose400 : "#fff"}
+                trackColor={{ false: C.gray200, true: Colors.rose300 }}
+                thumbColor={reminderOn ? Colors.rose400 : (isDark ? C.gray300 : "#fff")}
               />
             }
           />
           {/* 提醒时间 — 只在开启时显示 */}
           {reminderOn && (
             <Row
-              iconBg="#fff0f6"
+              iconBg={isDark ? C.gray200 : "#fff0f6"}
               iconEl={<Clock size={15} color={Colors.rose400} />}
               label={t("settings.reminderTime")}
               value={formatTime(reminderHour, reminderMinute)}
@@ -411,36 +420,26 @@ export default function SettingsScreen() {
           )}
         </View>
 
-        {/* 时间选择器 — iOS 内嵌 spinner，Android 弹 modal */}
-        {showTimePicker && (
-          <View>
-            <DateTimePicker
-              value={(() => {
-                const d = new Date();
-                d.setHours(reminderHour);
-                d.setMinutes(reminderMinute);
-                return d;
-              })()}
-              mode="time"
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={handleTimeChange}
-            />
-            {Platform.OS === "ios" && (
-              <TouchableOpacity
-                onPress={() => setShowTimePicker(false)}
-                style={st.timePickerDone}
-              >
-                <Text style={st.timePickerDoneText}>{t("common.done")}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+        {/* 时间选择器 — 统一用 modal 底部弹出 */}
+        {Platform.OS === "android" && showTimePicker && (
+          <DateTimePicker
+            value={(() => {
+              const d = new Date();
+              d.setHours(reminderHour);
+              d.setMinutes(reminderMinute);
+              return d;
+            })()}
+            mode="time"
+            display="default"
+            onChange={handleTimeChange}
+          />
         )}
 
         {/* ── 隐私 & 安全 ── */}
-        <Text style={st.sectionLabel}>{t("settings.section.privacy")}</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.privacy")}</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#fff0f6"
+            iconBg={isDark ? C.gray200 : "#fff0f6"}
             iconEl={<Lock size={15} color={Colors.rose400} />}
             label={t("settings.faceId")}
             sub={t("settings.faceId.sub")}
@@ -449,13 +448,13 @@ export default function SettingsScreen() {
               <Switch
                 value={faceIdOn}
                 onValueChange={toggleFaceId}
-                trackColor={{ false: Colors.gray200, true: Colors.rose300 }}
-                thumbColor={faceIdOn ? Colors.rose400 : "#fff"}
+                trackColor={{ false: C.gray200, true: Colors.rose300 }}
+                thumbColor={faceIdOn ? Colors.rose400 : (isDark ? C.gray300 : "#fff")}
               />
             }
           />
           <Row
-            iconBg="#fdf2f8"
+            iconBg={isDark ? C.gray200 : "#fdf2f8"}
             iconEl={<ShieldCheck size={15} color={Colors.rose400} />}
             label="Allow photo data use"
             sub={
@@ -469,19 +468,19 @@ export default function SettingsScreen() {
               <Switch
                 value={dataConsentOn}
                 onValueChange={toggleDataConsent}
-                trackColor={{ false: Colors.gray200, true: Colors.rose300 }}
-                thumbColor={dataConsentOn ? Colors.rose400 : "#fff"}
+                trackColor={{ false: C.gray200, true: Colors.rose300 }}
+                thumbColor={dataConsentOn ? Colors.rose400 : (isDark ? C.gray300 : "#fff")}
               />
             }
           />
           <Row
-            iconBg="#f0f9ff"
+            iconBg={isDark ? C.gray200 : "#f0f9ff"}
             iconEl={<Shield size={15} color="#3b82f6" />}
             label="Privacy Policy"
             onPress={() => Linking.openURL("https://aurasight.app/privacy")}
           />
           <Row
-            iconBg="#f0fdf4"
+            iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<FileText size={15} color={Colors.emerald} />}
             label="Terms of Service"
             onPress={() => Linking.openURL("https://aurasight.app/terms")}
@@ -490,10 +489,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 个性化 ── */}
-        <Text style={st.sectionLabel}>{t("settings.section.personalization")}</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.personalization")}</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#fff7ed"
+            iconBg={isDark ? C.gray200 : "#fff7ed"}
             iconEl={<Globe size={15} color="#f97316" />}
             label={t("settings.language")}
             value={lang === "zh" ? "中文" : "English"}
@@ -501,18 +500,18 @@ export default function SettingsScreen() {
             isFirst
           />
           <Row
-            iconBg="#1f2937"
-            iconEl={<Moon size={15} color="#e2e8f0" />}
+            iconBg={isDark ? "#2a2a3a" : "#1f2937"}
+            iconEl={<Moon size={15} color={isDark ? "#fbbf24" : "#e2e8f0"} />}
             label={t("settings.appearance")}
-            value={t("settings.appearance.lightLabel")}
-            sub={t("settings.appearance.darkSoon")}
+            value={themeMode === "light" ? "Light" : themeMode === "dark" ? "Dark" : "System"}
+            onPress={() => setShowThemeSheet((p) => !p)}
             isLast
           />
         </View>
 
         {/* 语言选择器 — 简易 inline sheet */}
         {showLangSheet && (
-          <View style={[st.card, Shadow.card, { marginTop: -8 }]}>
+          <View style={[st.card, S.card, isDark && dkCard, { marginTop: -8 }]}>
             {(["en", "zh"] as const).map((l, i) => (
               <TouchableOpacity
                 key={l}
@@ -536,11 +535,37 @@ export default function SettingsScreen() {
           </View>
         )}
 
+        {/* 主题选择器 — inline sheet */}
+        {showThemeSheet && (
+          <View style={[st.card, S.card, isDark && dkCard, { marginTop: -8 }]}>
+            {([
+              { key: "light" as ThemeMode, label: "Light", icon: "☀️" },
+              { key: "dark" as ThemeMode, label: "Dark", icon: "🌙" },
+              { key: "system" as ThemeMode, label: "System", icon: "📱" },
+            ]).map((item, i) => (
+              <TouchableOpacity
+                key={item.key}
+                onPress={() => { setThemeMode(item.key); setShowThemeSheet(false); }}
+                style={[st.row, i === 0 && st.rowFirst, i === 2 && st.rowLast]}
+                activeOpacity={0.7}
+              >
+                <View style={[st.rowIcon, { backgroundColor: isDark ? C.gray200 : "#f5f3ff" }]}>
+                  <Text style={{ fontSize: 14 }}>{item.icon}</Text>
+                </View>
+                <View style={st.rowMid}>
+                  <Text style={st.rowLabel}>{item.label}</Text>
+                </View>
+                {themeMode === item.key && <Check size={16} color={Colors.rose400} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {/* ── 帮助 & 反馈 ── */}
-        <Text style={st.sectionLabel}>HELP & FEEDBACK</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>HELP & FEEDBACK</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#fefce8"
+            iconBg={isDark ? C.gray200 : "#fefce8"}
             iconEl={<Star size={15} color="#eab308" />}
             label="Rate AuraSight ⭐"
             sub="Your review helps others find us"
@@ -557,7 +582,7 @@ export default function SettingsScreen() {
             isFirst
           />
           <Row
-            iconBg="#f0fdf4"
+            iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<MessageSquare size={15} color={Colors.emerald} />}
             label="Send Feedback"
             sub="hello@aurasight.app"
@@ -571,10 +596,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 关于 ── */}
-        <Text style={st.sectionLabel}>ABOUT</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>ABOUT</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#f5f3ff"
+            iconBg={isDark ? C.gray200 : "#f5f3ff"}
             iconEl={<Info size={15} color="#8b5cf6" />}
             label="Version"
             value={`v${APP_VERSION}`}
@@ -584,10 +609,10 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 开发者测试 ── */}
-        <Text style={st.sectionLabel}>DEV TOOLS</Text>
-        <View style={[st.card, Shadow.card]}>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>DEV TOOLS</Text>
+        <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg="#fef9c3"
+            iconBg={isDark ? C.gray200 : "#fef9c3"}
             iconEl={<Crown size={15} color="#d97706" />}
             label="Switch to VIP (Test)"
             sub={`Current: ${userMode}`}
@@ -609,8 +634,40 @@ export default function SettingsScreen() {
 
         {/* Sign Out / Delete Account 不放这里 —— 归 Profile 页 */}
 
-        <Text style={st.footer}>AuraSight v{APP_VERSION} · Made with 💗</Text>
+        <Text style={[st.footer, isDark && { color: C.gray400 }]}>AuraSight v{APP_VERSION} · Made with 💗</Text>
       </ScrollView>
+
+      {/* ── iOS time picker modal ── */}
+      {Platform.OS === "ios" && (
+        <Modal visible={showTimePicker} transparent animationType="slide">
+          <Pressable style={st.tpOverlay} onPress={() => setShowTimePicker(false)}>
+            <Pressable style={[st.tpSheet, isDark && { backgroundColor: C.cardBg }]} onPress={() => {}}>
+              <View style={[st.tpHeader, isDark && { borderBottomColor: C.gray200 }]}>
+                <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                  <Text style={[st.tpCancel, isDark && { color: C.gray400 }]}>Cancel</Text>
+                </TouchableOpacity>
+                <Text style={[st.tpTitle, isDark && { color: C.gray900 }]}>Reminder time</Text>
+                <TouchableOpacity onPress={() => setShowTimePicker(false)}>
+                  <Text style={st.tpDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={(() => {
+                  const d = new Date();
+                  d.setHours(reminderHour);
+                  d.setMinutes(reminderMinute);
+                  return d;
+                })()}
+                mode="time"
+                display="spinner"
+                onChange={handleTimeChange}
+                themeVariant={isDark ? "dark" : "light"}
+                style={{ height: 200 }}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -795,17 +852,28 @@ const st = StyleSheet.create({
     color: Colors.gray300,
     marginTop: 8,
   },
-  timePickerDone: {
-    alignSelf: "center",
-    marginTop: 4,
-    paddingHorizontal: 24,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "#b77cff",
+  // time picker modal (iOS)
+  tpOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    justifyContent: "flex-end",
   },
-  timePickerDoneText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 14,
+  tpSheet: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 34, // safe area 底部
   },
+  tpHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f3f4f6",
+  },
+  tpCancel: { fontSize: FontSize.sm, color: Colors.gray400, fontWeight: "600" },
+  tpTitle: { fontSize: FontSize.sm, fontWeight: "700", color: Colors.gray800 },
+  tpDone: { fontSize: FontSize.sm, color: Colors.rose400, fontWeight: "700" },
 });

@@ -44,6 +44,11 @@ import {
   X,
   Copy,
   Share2,
+  Eye,
+  EyeOff,
+  Scan,
+  BarChart3,
+  MessageCircle,
 } from "lucide-react-native";
 import {
   Colors,
@@ -53,6 +58,7 @@ import {
   FontSize,
   Shadow,
 } from "../../constants/theme";
+import { useAppTheme } from "../../lib/themeContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { useUser } from "../../lib/userContext";
@@ -111,6 +117,7 @@ const EMPTY_META: ProfileMeta = {
 };
 
 export default function ProfileScreen() {
+  const { colors: C, shadow: S, isDark } = useAppTheme();
   const { setUser: setCtxUser, clearUser: clearCtxUser } = useUser();
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,6 +126,11 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotResult, setForgotResult] = useState<string | null>(null);
+  const [forgotLoading, setForgotLoading] = useState(false);
   const [meta, setMeta] = useState<ProfileMeta>(EMPTY_META);
 
   // 新增状态
@@ -427,7 +439,7 @@ export default function ProfileScreen() {
         return;
       }
       const { hour, minute } = await getReminderTime();
-      await scheduleDailyReminder(hour, minute);
+      await scheduleDailyReminder(hour, minute, "Time to scan!", "Take a quick photo to track your skin today.");
       setReminderOn(true);
     } else {
       await disableReminder();
@@ -557,9 +569,37 @@ export default function ProfileScreen() {
     ]);
   }
 
+  async function handleForgotPassword() {
+    if (!forgotEmail.trim()) {
+      Alert.alert("Error", "Please enter your email.");
+      return;
+    }
+    setForgotLoading(true);
+    setForgotResult(null);
+    try {
+      const res = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: forgotEmail.trim().toLowerCase() }),
+      });
+      const data = await res.json();
+      if (data.temp_password) {
+        setForgotResult(data.temp_password);
+      } else {
+        // 安全提示（不暴露邮箱是否存在）
+        Alert.alert("Check your email", data.message ?? "If that email is registered, instructions have been sent.");
+        setForgotOpen(false);
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message ?? "Something went wrong.");
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
   if (loading) {
     return (
-      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.center}>
+      <LinearGradient colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.center}>
         <ActivityIndicator size="large" color={Colors.rose400} />
       </LinearGradient>
     );
@@ -569,15 +609,15 @@ export default function ProfileScreen() {
   if (user) {
     const stats = meta.stats;
     return (
-      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
+      <LinearGradient colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
         <SafeAreaView style={styles.safeArea} edges={["top"]}>
           <View style={styles.topNav}>
-            <Text style={styles.topNavTitle}>Profile</Text>
+            <Text style={[styles.topNavTitle, isDark && { color: C.gray900 }]}>Profile</Text>
             <TouchableOpacity
               onPress={() => router.push("/settings")}
               style={styles.settingsBtn}
             >
-              <Settings size={22} color={Colors.gray500} />
+              <Settings size={22} color={isDark ? C.gray400 : Colors.gray500} />
             </TouchableOpacity>
           </View>
           <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -609,8 +649,8 @@ export default function ProfileScreen() {
                   )}
                 </View>
               </TouchableOpacity>
-              <Text style={styles.profileName}>{user.name}</Text>
-              <Text style={styles.profileEmail}>{user.email}</Text>
+              <Text style={[styles.profileName, isDark && { color: C.gray900 }]}>{user.name}</Text>
+              <Text style={[styles.profileEmail, isDark && { color: C.gray400 }]}>{user.email}</Text>
               {user.mode === "vip" && (
                 <View style={styles.vipTag}>
                   <Crown size={12} color="#fde68a" />
@@ -642,38 +682,38 @@ export default function ProfileScreen() {
             )}
 
             {/* ── Your Journey 数据卡 ── */}
-            <Text style={styles.groupLabel}>Your Journey</Text>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Your Journey</Text>
             <View style={styles.statsGrid}>
-              <View style={[styles.statCard, Shadow.card]}>
-                <Text style={styles.statVal}>
+              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
                   {meta.daysSinceJoined ?? "—"}
                 </Text>
-                <Text style={styles.statLbl}>Days in</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Days in</Text>
               </View>
-              <View style={[styles.statCard, Shadow.card]}>
-                <Text style={styles.statVal}>{stats?.total_scans ?? 0}</Text>
-                <Text style={styles.statLbl}>Scans</Text>
+              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>{stats?.total_scans ?? 0}</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Scans</Text>
               </View>
-              <View style={[styles.statCard, Shadow.card]}>
+              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <View style={styles.statInline}>
                   <Flame size={14} color="#fb923c" />
                   <Text style={[styles.statVal, { color: "#fb923c" }]}>
                     {stats?.streak ?? 0}
                   </Text>
                 </View>
-                <Text style={styles.statLbl}>Streak</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Streak</Text>
               </View>
-              <View style={[styles.statCard, Shadow.card]}>
-                <Text style={styles.statVal}>
+              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
                   {stats?.avg_skin_score ?? "—"}
                 </Text>
-                <Text style={styles.statLbl}>Avg score</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Avg score</Text>
               </View>
             </View>
 
             {/* ── 快捷操作 ── */}
-            <Text style={styles.groupLabel}>Quick actions</Text>
-            <View style={[styles.section, Shadow.card]}>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Quick actions</Text>
+            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => router.push("/(tabs)/report")}
@@ -681,14 +721,14 @@ export default function ProfileScreen() {
               >
                 <Sparkles size={16} color={Colors.rose400} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>30-day Report</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>30-day Report</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     Trends, correlations, AI summary
                   </Text>
                 </View>
                 <ChevronRight size={16} color={Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => router.push("/(tabs)/history")}
@@ -696,8 +736,8 @@ export default function ProfileScreen() {
               >
                 <CameraIcon size={16} color={Colors.rose400} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Scan history</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Scan history</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     {stats?.total_scans ?? 0} scans
                   </Text>
                 </View>
@@ -713,8 +753,8 @@ export default function ProfileScreen() {
                   >
                     <Activity size={16} color={Colors.rose400} />
                     <View style={styles.rowBtnText}>
-                      <Text style={styles.rowBtnTitle}>Body composition</Text>
-                      <Text style={styles.rowBtnSub}>
+                      <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Body composition</Text>
+                      <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                         {meta.latestBodyComp
                           ? `Latest: ${meta.latestBodyComp.bodyFatPct}% body fat`
                           : "Log your first measurement"}
@@ -727,23 +767,23 @@ export default function ProfileScreen() {
             </View>
 
             {/* ── My Data ── */}
-            <Text style={styles.groupLabel}>My data</Text>
-            <View style={[styles.section, Shadow.card]}>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>My data</Text>
+            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={handleExportData}
                 activeOpacity={0.7}
               >
-                <Download size={16} color={Colors.gray500} />
+                <Download size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Export my data</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Export my data</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     JSON copy of scans & diary
                   </Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={handleDeleteAccount}
@@ -754,61 +794,61 @@ export default function ProfileScreen() {
                   <Text style={[styles.rowBtnTitle, { color: Colors.red }]}>
                     Delete account
                   </Text>
-                  <Text style={styles.rowBtnSub}>Permanent, can't be undone</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Permanent, can't be undone</Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
             </View>
 
             {/* ── Account settings ── */}
-            <Text style={styles.groupLabel}>Account settings</Text>
-            <View style={[styles.section, Shadow.card]}>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Account settings</Text>
+            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => setEditProfileOpen(true)}
                 activeOpacity={0.7}
               >
-                <Edit3 size={16} color={Colors.gray500} />
+                <Edit3 size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Edit profile</Text>
-                  <Text style={styles.rowBtnSub}>{user.name} · {user.email}</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Edit profile</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>{user.name} · {user.email}</Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => setChangePwOpen(true)}
                 activeOpacity={0.7}
               >
-                <Lock size={16} color={Colors.gray500} />
+                <Lock size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Change password</Text>
-                  <Text style={styles.rowBtnSub}>Keep your account secure</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Change password</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Keep your account secure</Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => setHealthOpen(true)}
                 activeOpacity={0.7}
               >
-                <Activity size={16} color={Colors.gray500} />
+                <Activity size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Health profile</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Health profile</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     {formatHealthSummary(health)}
                   </Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <View style={styles.rowBtn}>
-                <Bell size={16} color={Colors.gray500} />
+                <Bell size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Daily reminder</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Daily reminder</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     {reminderOn ? `On · ${reminderLabel}` : "Off"}
                   </Text>
                 </View>
@@ -822,7 +862,7 @@ export default function ProfileScreen() {
             </View>
 
             {/* ── Invite friends ── */}
-            <Text style={styles.groupLabel}>Invite friends</Text>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Invite friends</Text>
             <TouchableOpacity
               onPress={() => setInviteOpen(true)}
               activeOpacity={0.85}
@@ -853,13 +893,13 @@ export default function ProfileScreen() {
             </TouchableOpacity>
 
             {/* ── About ── */}
-            <Text style={styles.groupLabel}>About</Text>
-            <View style={[styles.section, Shadow.card]}>
+            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>About</Text>
+            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <View style={styles.rowBtn}>
-                <Info size={16} color={Colors.gray500} />
+                <Info size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Version</Text>
-                  <Text style={styles.rowBtnSub}>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Version</Text>
+                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     {Constants.expoConfig?.version ?? "—"}
                     {Constants.expoConfig?.runtimeVersion
                       ? ` · runtime ${Constants.expoConfig.runtimeVersion}`
@@ -867,29 +907,29 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               </View>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => Linking.openURL(PRIVACY_URL)}
                 activeOpacity={0.7}
               >
-                <Shield size={16} color={Colors.gray500} />
+                <Shield size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Privacy policy</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Privacy policy</Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
-              <View style={styles.divider} />
+              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
               <TouchableOpacity
                 style={styles.rowBtn}
                 onPress={() => Linking.openURL(TERMS_URL)}
                 activeOpacity={0.7}
               >
-                <FileText size={16} color={Colors.gray500} />
+                <FileText size={16} color={isDark ? C.gray400 : Colors.gray500} />
                 <View style={styles.rowBtnText}>
-                  <Text style={styles.rowBtnTitle}>Terms of service</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Terms of service</Text>
                 </View>
-                <ChevronRight size={16} color={Colors.gray400} />
+                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
               </TouchableOpacity>
             </View>
 
@@ -933,34 +973,50 @@ export default function ProfileScreen() {
 
   // ─── 未登录 ───────────────────────────────────────────────
   return (
-    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
+    <LinearGradient colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <KeyboardAvoidingView
           behavior={Platform.OS === "ios" ? "padding" : undefined}
           style={{ flex: 1 }}
         >
           <ScrollView contentContainerStyle={styles.scrollContent}>
-            {/* Logo */}
-            <View style={styles.logoSection}>
-              <LinearGradient
-                colors={Gradients.roseMain}
-                style={styles.logoCircle}
-              >
-                <Text style={styles.logoText}>✨</Text>
-              </LinearGradient>
-              <Text style={styles.logoTitle}>AuraSight</Text>
-              <Text style={styles.logoSub}>
-                Track your skin & body transformation
+            {/* ── Hero 卖点区 ── */}
+            <LinearGradient
+              colors={["#F472B6", "#FB923C"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.heroCard}
+            >
+              <Text style={styles.heroBrand}>AuraSight</Text>
+              <Text style={styles.heroTitle}>
+                Your skin journey{"\n"}starts here
               </Text>
-            </View>
+              <View style={styles.heroFeatures}>
+                <View style={styles.heroFeatureRow}>
+                  <Scan size={16} color="#fff" />
+                  <Text style={styles.heroFeatureText}>AI-powered acne scan in seconds</Text>
+                </View>
+                <View style={styles.heroFeatureRow}>
+                  <BarChart3 size={16} color="#fff" />
+                  <Text style={styles.heroFeatureText}>Track progress with daily skin scores</Text>
+                </View>
+                <View style={styles.heroFeatureRow}>
+                  <MessageCircle size={16} color="#fff" />
+                  <Text style={styles.heroFeatureText}>Personalized skincare advice</Text>
+                </View>
+              </View>
+            </LinearGradient>
 
-            {/* Tab 切换 */}
+            {/* ── Tab 切换 ── */}
             <View style={styles.tabRow}>
               {(["login", "register"] as const).map((t) => (
                 <TouchableOpacity
                   key={t}
                   style={styles.tabItem}
-                  onPress={() => setTab(t)}
+                  onPress={() => {
+                    setTab(t);
+                    setShowPassword(false);
+                  }}
                 >
                   <Text
                     style={[styles.tabText, tab === t && styles.tabTextActive]}
@@ -972,15 +1028,15 @@ export default function ProfileScreen() {
               ))}
             </View>
 
-            {/* 表单 */}
-            <View style={[styles.form, Shadow.card]}>
+            {/* ── 表单 ── */}
+            <View style={[styles.form, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               {tab === "register" && (
-                <View style={styles.inputWrap}>
+                <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                   <User size={16} color={Colors.gray400} />
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, isDark && { color: C.gray900 }]}
                     placeholder="Your name"
-                    placeholderTextColor={Colors.gray300}
+                    placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
                     value={name}
                     onChangeText={setName}
                     autoCapitalize="words"
@@ -988,12 +1044,12 @@ export default function ProfileScreen() {
                 </View>
               )}
 
-              <View style={styles.inputWrap}>
+              <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <Mail size={16} color={Colors.gray400} />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, isDark && { color: C.gray900 }]}
                   placeholder="Email address"
-                  placeholderTextColor={Colors.gray300}
+                  placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
@@ -1001,17 +1057,41 @@ export default function ProfileScreen() {
                 />
               </View>
 
-              <View style={styles.inputWrap}>
+              <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <Lock size={16} color={Colors.gray400} />
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { flex: 1 }, isDark && { color: C.gray900 }]}
                   placeholder="Password"
-                  placeholderTextColor={Colors.gray300}
+                  placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
                   value={password}
                   onChangeText={setPassword}
-                  secureTextEntry
+                  secureTextEntry={!showPassword}
                 />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  {showPassword ? (
+                    <EyeOff size={18} color={Colors.gray400} />
+                  ) : (
+                    <Eye size={18} color={Colors.gray400} />
+                  )}
+                </TouchableOpacity>
               </View>
+
+              {/* Forgot password (登录时才显示) */}
+              {tab === "login" && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setForgotEmail(email);
+                    setForgotResult(null);
+                    setForgotOpen(true);
+                  }}
+                  style={styles.forgotBtn}
+                >
+                  <Text style={[styles.forgotText, isDark && { color: Colors.rose400 }]}>Forgot password?</Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 onPress={tab === "login" ? handleLogin : handleRegister}
@@ -1035,13 +1115,94 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 游客继续 */}
-            <Text style={styles.guestNote}>
-              Continue as guest — your data stays on this device only
+            {/* ── Continue as guest 按钮 ── */}
+            <TouchableOpacity
+              onPress={() => router.push("/(tabs)/camera")}
+              style={styles.guestBtn}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.guestBtnText}>Continue as guest</Text>
+            </TouchableOpacity>
+            <Text style={styles.guestHint}>
+              Your data stays on this device only
             </Text>
+
+            {/* ── Privacy / Terms ── */}
+            <View style={styles.legalRow}>
+              <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+                <Text style={styles.legalLink}>Privacy Policy</Text>
+              </TouchableOpacity>
+              <Text style={styles.legalDot}>·</Text>
+              <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
+                <Text style={styles.legalLink}>Terms of Service</Text>
+              </TouchableOpacity>
+            </View>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* ── Forgot Password Modal ── */}
+      <Modal visible={forgotOpen} transparent animationType="fade" onRequestClose={() => setForgotOpen(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setForgotOpen(false)}>
+          <Pressable style={styles.modalSheet} onPress={() => {}}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset password</Text>
+              <TouchableOpacity onPress={() => setForgotOpen(false)} style={styles.modalCloseBtn}>
+                <X size={18} color={Colors.gray500} />
+              </TouchableOpacity>
+            </View>
+
+            {forgotResult ? (
+              <View style={styles.forgotResultWrap}>
+                <Text style={styles.forgotResultLabel}>Your temporary password</Text>
+                <Text style={styles.forgotResultCode}>{forgotResult}</Text>
+                <Text style={styles.forgotResultHint}>
+                  Use this to sign in, then change your password in Profile → Account settings.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => {
+                    setPassword(forgotResult);
+                    setForgotOpen(false);
+                    setTab("login");
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient colors={Gradients.roseMain} style={styles.submitBtn}>
+                    <Text style={styles.submitText}>Go to Sign In</Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.modalHint}>
+                  Enter your email and we'll generate a temporary password.
+                </Text>
+                <View style={styles.inputWrap}>
+                  <Mail size={16} color={Colors.gray400} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Email address"
+                    placeholderTextColor={Colors.gray300}
+                    value={forgotEmail}
+                    onChangeText={setForgotEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </View>
+                <TouchableOpacity onPress={handleForgotPassword} disabled={forgotLoading} activeOpacity={0.85}>
+                  <LinearGradient colors={Gradients.roseMain} style={styles.submitBtn}>
+                    {forgotLoading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={styles.submitText}>Reset password</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </LinearGradient>
   );
 }
@@ -1070,6 +1231,7 @@ function ModalShell({
   title: string;
   children: React.ReactNode;
 }) {
+  const { colors: C, isDark } = useAppTheme();
   return (
     <Modal
       visible={visible}
@@ -1079,13 +1241,13 @@ function ModalShell({
     >
       <Pressable style={styles.modalOverlay} onPress={onClose}>
         <Pressable
-          style={styles.modalSheet}
+          style={[styles.modalSheet, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}
           onPress={() => {}}
         >
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.modalCloseBtn}>
-              <X size={18} color={Colors.gray500} />
+            <Text style={[styles.modalTitle, isDark && { color: C.gray900 }]}>{title}</Text>
+            <TouchableOpacity onPress={onClose} style={[styles.modalCloseBtn, isDark && { backgroundColor: C.gray200 }]}>
+              <X size={18} color={isDark ? C.gray400 : Colors.gray500} />
             </TouchableOpacity>
           </View>
           {children}
@@ -1108,6 +1270,7 @@ function EditProfileModal({
   initialEmail: string;
   onSave: (name: string, email: string) => void;
 }) {
+  const { colors: C, isDark } = useAppTheme();
   const [name, setName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
   useEffect(() => {
@@ -1119,23 +1282,23 @@ function EditProfileModal({
 
   return (
     <ModalShell visible={visible} onClose={onClose} title="Edit profile">
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <User size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="Your name"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={name}
           onChangeText={setName}
           autoCapitalize="words"
         />
       </View>
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <Mail size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="Email address"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
@@ -1163,6 +1326,7 @@ function ChangePasswordModal({
   onClose: () => void;
   onSubmit: (oldPw: string, newPw: string) => void;
 }) {
+  const { colors: C, isDark } = useAppTheme();
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -1188,34 +1352,34 @@ function ChangePasswordModal({
 
   return (
     <ModalShell visible={visible} onClose={onClose} title="Change password">
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <Lock size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="Current password"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={oldPw}
           onChangeText={setOldPw}
           secureTextEntry
         />
       </View>
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <Lock size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="New password"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={newPw}
           onChangeText={setNewPw}
           secureTextEntry
         />
       </View>
-      <View style={styles.inputWrap}>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <Lock size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="Confirm new password"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={confirm}
           onChangeText={setConfirm}
           secureTextEntry
@@ -1241,6 +1405,7 @@ function HealthProfileModal({
   initial: HealthProfile;
   onSave: (patch: HealthProfile) => void;
 }) {
+  const { colors: C, isDark } = useAppTheme();
   const [heightStr, setHeightStr] = useState("");
   const [weightStr, setWeightStr] = useState("");
   const [gender, setGender] = useState<"male" | "female" | "other" | "">("");
@@ -1269,26 +1434,26 @@ function HealthProfileModal({
 
   return (
     <ModalShell visible={visible} onClose={onClose} title="Health profile">
-      <Text style={styles.modalHint}>
+      <Text style={[styles.modalHint, isDark && { color: C.gray400 }]}>
         Used by Body Composition and future personalization features.
       </Text>
-      <View style={styles.inputWrap}>
-        <Text style={styles.inputPrefix}>Height</Text>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Height</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="cm"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={heightStr}
           onChangeText={setHeightStr}
           keyboardType="numeric"
         />
       </View>
-      <View style={styles.inputWrap}>
-        <Text style={styles.inputPrefix}>Weight</Text>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Weight</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="kg"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={weightStr}
           onChangeText={setWeightStr}
           keyboardType="numeric"
@@ -1302,12 +1467,14 @@ function HealthProfileModal({
             style={[
               styles.genderBtn,
               gender === g && styles.genderBtnActive,
+              gender !== g && isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 },
             ]}
           >
             <Text
               style={[
                 styles.genderBtnText,
                 gender === g && styles.genderBtnTextActive,
+                gender !== g && isDark && { color: C.gray400 },
               ]}
             >
               {g}
@@ -1315,12 +1482,12 @@ function HealthProfileModal({
           </TouchableOpacity>
         ))}
       </View>
-      <View style={styles.inputWrap}>
-        <Text style={styles.inputPrefix}>Birthday</Text>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Birthday</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="YYYY-MM-DD"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={birthday}
           onChangeText={setBirthday}
           autoCapitalize="none"
@@ -1348,6 +1515,7 @@ function InviteModal({
   onShare: () => void;
   onRedeem: (code: string) => void;
 }) {
+  const { colors: C, isDark } = useAppTheme();
   const [code, setCode] = useState("");
 
   return (
@@ -1377,13 +1545,13 @@ function InviteModal({
         </TouchableOpacity>
       </LinearGradient>
 
-      <Text style={styles.modalHint}>Got a code from a friend?</Text>
-      <View style={styles.inputWrap}>
+      <Text style={[styles.modalHint, isDark && { color: C.gray400 }]}>Got a code from a friend?</Text>
+      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
         <Gift size={16} color={Colors.gray400} />
         <TextInput
-          style={styles.input}
+          style={[styles.input, isDark && { color: C.gray900 }]}
           placeholder="Enter referral code"
-          placeholderTextColor={Colors.gray300}
+          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
           value={code}
           onChangeText={(t) => setCode(t.toUpperCase())}
           autoCapitalize="characters"
@@ -1489,27 +1657,39 @@ const styles = StyleSheet.create({
   },
   logoutText: { color: Colors.red, fontSize: FontSize.base, fontWeight: "600" },
 
-  // 未登录
-  logoSection: { alignItems: "center", paddingVertical: Spacing.xxl },
-  logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+  // 未登录 — Hero
+  heroCard: {
+    borderRadius: Radius.xxl,
+    padding: Spacing.xl,
+    marginBottom: Spacing.xl,
+    marginTop: Spacing.md,
+  },
+  heroBrand: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: FontSize.xs,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: Spacing.sm,
+  },
+  heroTitle: {
+    fontSize: 28,
+    fontWeight: "800",
+    color: "#fff",
+    lineHeight: 34,
+    letterSpacing: -0.5,
+    marginBottom: Spacing.lg,
+  },
+  heroFeatures: { gap: 10 },
+  heroFeatureRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.md,
+    gap: 10,
   },
-  logoText: { fontSize: 32 },
-  logoTitle: {
-    fontSize: FontSize.xxl,
-    fontWeight: "700",
-    color: Colors.gray800,
-  },
-  logoSub: {
+  heroFeatureText: {
+    color: "rgba(255,255,255,0.95)",
     fontSize: FontSize.sm,
-    color: Colors.gray400,
-    marginTop: 4,
-    textAlign: "center",
+    fontWeight: "600",
   },
 
   tabRow: { flexDirection: "row", marginBottom: Spacing.xl },
@@ -1564,12 +1744,58 @@ const styles = StyleSheet.create({
   },
   submitText: { color: "#fff", fontSize: FontSize.base, fontWeight: "700" },
 
-  guestNote: {
+  // Forgot password
+  forgotBtn: { alignSelf: "flex-end", marginTop: -4 },
+  forgotText: { fontSize: FontSize.xs, color: Colors.rose400, fontWeight: "600" },
+  forgotResultWrap: { alignItems: "center", gap: Spacing.md },
+  forgotResultLabel: { fontSize: FontSize.sm, color: Colors.gray500, fontWeight: "600" },
+  forgotResultCode: {
+    fontSize: 36,
+    fontWeight: "800",
+    color: Colors.gray800,
+    letterSpacing: 4,
+  },
+  forgotResultHint: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+
+  // Guest + legal
+  guestBtn: {
+    alignSelf: "center",
+    borderWidth: 1,
+    borderColor: Colors.gray300,
+    borderRadius: Radius.lg,
+    paddingVertical: 11,
+    paddingHorizontal: Spacing.xxxl,
+    marginBottom: Spacing.sm,
+  },
+  guestBtnText: {
+    fontSize: FontSize.sm,
+    fontWeight: "600",
+    color: Colors.gray500,
+  },
+  guestHint: {
     textAlign: "center",
     fontSize: FontSize.xs,
     color: Colors.gray400,
-    lineHeight: 18,
+    marginBottom: Spacing.lg,
   },
+  legalRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: Spacing.xl,
+  },
+  legalLink: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    textDecorationLine: "underline",
+  },
+  legalDot: { fontSize: FontSize.xs, color: Colors.gray300 },
   topNav: {
     flexDirection: "row",
     justifyContent: "space-between",

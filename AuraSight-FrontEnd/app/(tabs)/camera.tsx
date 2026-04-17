@@ -57,13 +57,9 @@ const TYPE_DESC: Record<AcneType, string> = {
 const DRAWER_H_FACE = 170;
 const DRAWER_H_BODY = 170;
 
-// 面部分区简化：forehead / L.Cheek / R.Cheek 用处不大（用户自己能看清的位置），
-// 只保留 Chin / Nose —— 这两个是典型痘痘高发区，值得单独标注。
-// BodyZone 类型里仍保留那三个枚举，避免已有的历史记录解析失败。
-const ZONES: { label: string; value: BodyZone }[] = [
-  { label: "Chin", value: "face_chin" },
-  { label: "Nose", value: "face_nose" },
-];
+// 面部不再有 zone 选择器（Chin / Nose 也去掉了）——用户拍一张整脸就好。
+// face mode 统一存 body_zone = "face"。
+// 历史数据里可能有 face_chin / face_nose / face_forehead 等，BodyZone 类型保留兼容。
 
 // getUserId 现在从 lib/userId.ts 导入（顶部 import 里）
 
@@ -102,7 +98,7 @@ export default function CameraScreen() {
   const [mode, setMode] = useState<"face" | "body">("face");
   const [facing, setFacing] = useState<CameraType>("front");
   const [flash, setFlash] = useState(false);
-  const [activeZone, setActiveZone] = useState<BodyZone>("face_chin");
+  const [activeZone, setActiveZone] = useState<BodyZone>("face");
   const [saving, setSaving] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -447,7 +443,7 @@ export default function CameraScreen() {
                       setCountdown(null);
                     }
                     setMode(m);
-                    setActiveZone(m === "body" ? "back" : "face_chin");
+                    setActiveZone(m === "body" ? "back" : "face");
                   }}
                   activeOpacity={0.85}
                 >
@@ -535,32 +531,7 @@ export default function CameraScreen() {
       <View style={[styles.bottomDrawer, { height: drawerH }]}>
         <View style={styles.drawerHandle} />
 
-        {mode === "face" && (
-          <View style={styles.zoneRow}>
-            {ZONES.map((zone) => (
-              <TouchableOpacity
-                key={zone.value}
-                onPress={() => setActiveZone(zone.value)}
-                activeOpacity={0.8}
-              >
-                {activeZone === zone.value ? (
-                  <LinearGradient
-                    colors={Gradients.roseMain}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.zoneActive}
-                  >
-                    <Text style={styles.zoneActiveText}>{zone.label}</Text>
-                  </LinearGradient>
-                ) : (
-                  <View style={styles.zoneInactive}>
-                    <Text style={styles.zoneInactiveText}>{zone.label}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+        {/* face mode 不再有 zone selector — 整脸一张拍 */}
 
         <View style={styles.captureRow}>
           {/* 相册 */}

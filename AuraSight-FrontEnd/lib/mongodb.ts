@@ -11,6 +11,7 @@ import { CONSENT_VERSION } from "./consent";
 
 export type AcneType = "pustule" | "broken" | "scab" | "redness";
 export type BodyZone =
+  | "face"
   | "face_forehead"
   | "face_cheek_l"
   | "face_cheek_r"

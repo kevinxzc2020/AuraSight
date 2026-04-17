@@ -15,6 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Polyline, Circle, Line, Text as SvgText } from "react-native-svg";
 import { ChevronLeft, ChevronRight, Flame, Camera, Lock, Sparkles } from "lucide-react-native";
 import { useUser } from "../../lib/userContext";
+import { useAppTheme } from "../../lib/themeContext";
 import {
   Colors,
   Gradients,
@@ -292,6 +293,7 @@ function MonthHero({
 // ─── 主页面 ───────────────────────────────────────────────
 export default function HistoryScreen() {
   const { user } = useUser();
+  const { colors: C, shadow: S, isDark } = useAppTheme();
   const isVIP = user?.mode === "vip";
   const [activeFilter, setActiveFilter] = useState("All");
   const [scans, setScans] = useState<ScanRecord[]>([]);
@@ -408,7 +410,7 @@ export default function HistoryScreen() {
     return (
       <SensitiveGate>
         <LinearGradient
-          colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+          colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
           style={st.loadingContainer}
         >
           <ActivityIndicator size="large" color={Colors.rose400} />
@@ -419,7 +421,7 @@ export default function HistoryScreen() {
 
   return (
     <SensitiveGate>
-    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
+    <LinearGradient colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
       <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -427,9 +429,9 @@ export default function HistoryScreen() {
         >
           {/* ── 标题行 ── */}
           <View style={st.titleRow}>
-            <Text style={st.pageTitle}>History</Text>
+            <Text style={[st.pageTitle, isDark && { color: C.white }]}>History</Text>
             {/* 筛选胶囊 */}
-            <View style={st.filterPill}>
+            <View style={[st.filterPill, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
               {["Face", "Body", "All"].map((f) => (
                 <TouchableOpacity
                   key={f}
@@ -447,7 +449,7 @@ export default function HistoryScreen() {
                     </LinearGradient>
                   ) : (
                     <View style={st.filterOff}>
-                      <Text style={st.filterOffText}>{f}</Text>
+                      <Text style={[st.filterOffText, isDark && { color: C.gray300 }]}>{f}</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -465,24 +467,24 @@ export default function HistoryScreen() {
           />
 
           {/* ── 日历卡片 ── */}
-          <View style={[st.card, Shadow.card]}>
+          <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
             {/* 月份导航 */}
             <View style={st.monthNav}>
-              <TouchableOpacity onPress={prevMonth} style={st.navBtn}>
-                <ChevronLeft size={18} color={Colors.gray400} />
+              <TouchableOpacity onPress={prevMonth} style={[st.navBtn, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
+                <ChevronLeft size={18} color={isDark ? C.gray300 : Colors.gray400} />
               </TouchableOpacity>
-              <Text style={st.monthText}>
+              <Text style={[st.monthText, isDark && { color: C.white }]}>
                 {monthName} {currentYear}
               </Text>
-              <TouchableOpacity onPress={nextMonth} style={st.navBtn}>
-                <ChevronRight size={18} color={Colors.gray400} />
+              <TouchableOpacity onPress={nextMonth} style={[st.navBtn, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
+                <ChevronRight size={18} color={isDark ? C.gray300 : Colors.gray400} />
               </TouchableOpacity>
             </View>
 
             {/* 星期标题行 */}
             <View style={st.weekRow}>
               {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
-                <Text key={i} style={[st.weekDay, { width: cellW }]}>{d}</Text>
+                <Text key={i} style={[st.weekDay, { width: cellW }, isDark && { color: C.gray300 }]}>{d}</Text>
               ))}
             </View>
 
@@ -524,12 +526,14 @@ export default function HistoryScreen() {
                         <View style={[
                           st.dayNumWrapper,
                           isToday && st.todayWrapper,
+                          isDark && !isToday && { backgroundColor: C.cardBg },
                         ]}>
                           <Text style={[
                             st.dayNum,
                             isToday && st.todayNum,
                             isFuture && st.futureNum,
                             scan && !isToday && { color: scoreColor ?? Colors.gray600, fontWeight: "700" },
+                            isDark && !isToday && !scan && { color: C.gray400 },
                           ]}>
                             {day}
                           </Text>
@@ -560,39 +564,39 @@ export default function HistoryScreen() {
                 <View
                   style={[st.legendDot, { backgroundColor: Colors.emerald }]}
                 />
-                <Text style={st.legendText}>90+</Text>
+                <Text style={[st.legendText, isDark && { color: C.gray400 }]}>90+</Text>
               </View>
               <View style={st.legendItem}>
                 <View style={[st.legendDot, { backgroundColor: "#f59e0b" }]} />
-                <Text style={st.legendText}>70–89</Text>
+                <Text style={[st.legendText, isDark && { color: C.gray400 }]}>70–89</Text>
               </View>
               <View style={st.legendItem}>
                 <View
                   style={[st.legendDot, { backgroundColor: Colors.rose400 }]}
                 />
-                <Text style={st.legendText}>{"<70"}</Text>
+                <Text style={[st.legendText, isDark && { color: C.gray400 }]}>{"<70"}</Text>
               </View>
-              <Text style={st.legendHint}>Tap a day to view scan</Text>
+              <Text style={[st.legendHint, isDark && { color: C.gray500 }]}>Tap a day to view scan</Text>
             </View>
           </View>
 
           {/* ── 皮肤分数折线图 (VIP only) ── */}
           {isVIP ? (
-            <View style={[st.card, Shadow.card]}>
+            <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
               <SkinScoreLineChart scans={scans} />
             </View>
           ) : (
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => router.push("/vip")}
-              style={[st.card, Shadow.card, st.paywallChart]}
+              style={[st.card, S.card, st.paywallChart, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}
             >
-              <View style={st.paywallChartIcon}>
+              <View style={[st.paywallChartIcon, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
                 <Sparkles size={22} color={Colors.rose400} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={st.paywallChartTitle}>Unlock your skin trend</Text>
-                <Text style={st.paywallChartSub}>
+                <Text style={[st.paywallChartTitle, isDark && { color: C.white }]}>Unlock your skin trend</Text>
+                <Text style={[st.paywallChartSub, isDark && { color: C.gray300 }]}>
                   Get AI scoring and a weekly progress chart with VIP.
                 </Text>
               </View>
@@ -608,15 +612,15 @@ export default function HistoryScreen() {
           )}
 
           {/* ── 最近扫描记录 ── */}
-          <Text style={st.sectionTitle}>Recent Scans</Text>
+          <Text style={[st.sectionTitle, isDark && { color: C.white }]}>Recent Scans</Text>
 
           {filteredScans.length === 0 ? (
             <View style={st.emptyState}>
-              <View style={st.emptyIconWrapper}>
+              <View style={[st.emptyIconWrapper, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
                 <Camera size={28} color={Colors.rose200} />
               </View>
-              <Text style={st.emptyText}>No scans yet</Text>
-              <Text style={st.emptySub}>
+              <Text style={[st.emptyText, isDark && { color: C.white }]}>No scans yet</Text>
+              <Text style={[st.emptySub, isDark && { color: C.gray400 }]}>
                 Take your first scan to start tracking!
               </Text>
               <TouchableOpacity

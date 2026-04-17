@@ -27,6 +27,7 @@ import {
   ChevronRight,
   ChevronDown,
   ChevronUp,
+  Camera as CameraIcon,
 } from "lucide-react-native";
 import {
   Colors,
@@ -36,6 +37,7 @@ import {
   FontSize,
   Shadow,
 } from "../../constants/theme";
+import { useAppTheme } from "../../lib/themeContext";
 import { getStats, StatsResult, AcneType, ScanRecord } from "../../lib/mongodb";
 import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import { getDailyAdvice } from "../../lib/ai";
@@ -46,11 +48,28 @@ import { getUserId } from "../../lib/userId";
 const { width, height } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
-function getGreeting(): string {
+function getGreeting(name?: string): string {
   const hour = new Date().getHours();
-  if (hour < 12) return "Good morning ✨";
-  if (hour < 18) return "Good afternoon ✨";
-  return "Good evening ✨";
+  const n = name?.split(" ")[0]; // 只取 first name，更亲和
+  if (hour < 6) return n ? `Hey ${n}, burning the midnight oil?` : "Hey, night owl";
+  if (hour < 12) return n ? `Good morning, ${n}` : "Good morning";
+  if (hour < 18) return n ? `Good afternoon, ${n}` : "Good afternoon";
+  if (hour < 22) return n ? `Good evening, ${n}` : "Good evening";
+  return n ? `Still up, ${n}?` : "Still up?";
+}
+
+function getDayMessage(): string {
+  const day = new Date().getDay(); // 0=Sun
+  const msgs = [
+    "Sunday — slow down, recharge, and let your skin breathe.",
+    "Monday — fresh start! A little discipline goes a long way.",
+    "Tuesday — keep the momentum going, you're doing great.",
+    "Wednesday — halfway there. Stay hydrated & stay consistent.",
+    "Thursday — almost weekend! Don't skip your routine tonight.",
+    "Friday — you made it. Treat yourself, but wash your face first.",
+    "Saturday — relax day. A scan only takes 10 seconds.",
+  ];
+  return msgs[day];
 }
 
 function todayKey() {
@@ -582,6 +601,7 @@ function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; is
 
 // ─── Main Screen ──────────────────────────────────────────────
 export default function HomeScreen() {
+  const { colors: C, shadow: S, isDark, gradients: G } = useAppTheme();
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [userName, setUserName] = useState("");
   const [isGuest, setIsGuest] = useState(true);
@@ -599,6 +619,11 @@ export default function HomeScreen() {
   const [latestFaceScan, setLatestFaceScan] = useState<ScanRecord | null>(null);
   const [moodModalVisible, setMoodModalVisible] = useState(false);
   const [tipModalVisible, setTipModalVisible] = useState(false);
+
+  // 今日数据——每天"清零"，鼓励用户每天扫一次
+  const [todaySpots, setTodaySpots] = useState<number | null>(null);
+  const [todayScore, setTodayScore] = useState<number | null>(null);
+  const [todayScans, setTodayScans] = useState(0);
   const [dailyAdvice, setDailyAdvice] = useState<string>("");
   // Daily check-in 折叠态：默认收起（用户说"隐藏式"）。
   // 状态持久化到 AsyncStorage，避免每次刷新又被用户手动展开。
@@ -662,6 +687,24 @@ export default function HomeScreen() {
         (s) => !["back", "chest"].includes(s.body_zone) && s.image_uri,
       ) ?? null;
       setLatestFaceScan(latestFace);
+
+      // ── 今日统计（每日清零）──
+      const todayStr = todayKey();
+      const todayArr = (scansRes as ScanRecord[]).filter(
+        (s) => new Date(s.scan_date).toISOString().split("T")[0] === todayStr,
+      );
+      setTodayScans(todayArr.length);
+      if (todayArr.length > 0) {
+        // 取今天最新的一次扫描作为 spots / score
+        const latest = todayArr.reduce((a, b) =>
+          new Date(a.scan_date) > new Date(b.scan_date) ? a : b,
+        );
+        setTodaySpots(latest.detections?.length ?? null);
+        setTodayScore(latest.skin_score ?? null);
+      } else {
+        setTodaySpots(null);
+        setTodayScore(null);
+      }
     } catch (err) {
       console.error("Failed to load:", err);
     }
@@ -693,27 +736,27 @@ export default function HomeScreen() {
   const displayTodayPts = todayPts + totalExtraPts;
 
   return (
-    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
+    <LinearGradient colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
           {/* ── Header ── */}
           <View style={styles.header}>
-            <View>
-              <Text style={styles.greeting}>{getGreeting()}</Text>
-              <Text style={styles.userName}>
-                {userName || (isGuest ? "Guest" : "User")}
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.greeting, isDark && { color: C.gray900 }]}>
+                {getGreeting(userName || (isGuest ? "" : ""))} ✨
               </Text>
+              <Text style={[styles.dayMessage, isDark && { color: C.gray400 }]}>{getDayMessage()}</Text>
             </View>
             <View style={styles.headerRight}>
               {/* Only show Sign In for actual guests (not registered, not VIP) */}
               {isGuest && (
                 <TouchableOpacity
                   onPress={() => router.push("/(tabs)/profile")}
-                  style={styles.signInBtn}
+                  style={[styles.signInBtn, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}
                 >
                   <User size={13} color={Colors.rose400} />
-                  <Text style={styles.signInText}>Sign In</Text>
+                  <Text style={[styles.signInText, isDark && { color: C.gray400 }]}>Sign In</Text>
                 </TouchableOpacity>
               )}
               <LinearGradient
@@ -743,7 +786,7 @@ export default function HomeScreen() {
             const totalExtra = EXTRA_TASKS.length;
             const allMainDone = faceDone && bodyDone;
             return (
-          <View style={[styles.card, styles.checkinCard]}>
+          <View style={[styles.card, styles.checkinCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={async () => {
@@ -754,10 +797,10 @@ export default function HomeScreen() {
               style={styles.checkinHeaderRow}
             >
               <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>Daily Check-in</Text>
+                <Text style={[styles.cardTitle, isDark && { color: C.gray900 }]}>Daily Check-in</Text>
                 {/* 折叠态摘要行：一眼看完成进度 */}
                 {!checkinExpanded && (
-                  <Text style={styles.checkinSummary}>
+                  <Text style={[styles.checkinSummary, isDark && { color: C.gray400 }]}>
                     {allMainDone ? "✓ Done today" : `${mainDone}/2 main`}
                     {totalExtra > 0 ? ` · ${extraDoneCount}/${totalExtra} bonus` : ""}
                     {" · "}{displayTodayPts} pts
@@ -765,14 +808,14 @@ export default function HomeScreen() {
                 )}
               </View>
               {checkinExpanded ? (
-                <ChevronUp size={18} color={Colors.gray400} />
+                <ChevronUp size={18} color={isDark ? C.gray400 : Colors.gray400} />
               ) : (
-                <ChevronDown size={18} color={Colors.gray400} />
+                <ChevronDown size={18} color={isDark ? C.gray400 : Colors.gray400} />
               )}
             </TouchableOpacity>
             {checkinExpanded && (
               <View style={styles.cardHeader}>
-                <Text style={styles.cardHeaderPts}>{displayTodayPts} pts today</Text>
+                <Text style={[styles.cardHeaderPts, isDark && { color: C.gray500 }]}>{displayTodayPts} pts today</Text>
               </View>
             )}
 
@@ -808,10 +851,10 @@ export default function HomeScreen() {
                 </LinearGradient>
               )}
               <View style={styles.taskInfo}>
-                <Text style={[styles.taskName, faceDone && styles.taskNameDone]}>
+                <Text style={[styles.taskName, faceDone && styles.taskNameDone, isDark && { color: C.gray900 }]}>
                   {faceDone ? "Face checked in ✓" : "How's your skin today?"}
                 </Text>
-                <Text style={styles.taskSub}>+50 pts · 30-second face scan</Text>
+                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>+50 pts · 30-second face scan</Text>
               </View>
               {faceDone ? (
                 <CheckCircle size={22} color="#10B981" />
@@ -836,10 +879,10 @@ export default function HomeScreen() {
                 </LinearGradient>
               )}
               <View style={styles.taskInfo}>
-                <Text style={[styles.taskName, bodyDone && styles.taskNameDone]}>
+                <Text style={[styles.taskName, bodyDone && styles.taskNameDone, isDark && { color: C.gray900 }]}>
                   {bodyDone ? "Body checked in ✓" : "Quick body check-in"}
                 </Text>
-                <Text style={styles.taskSub}>+50 pts · tracks shape & progress</Text>
+                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>+50 pts · tracks shape & progress</Text>
               </View>
               {bodyDone ? (
                 <CheckCircle size={22} color="#10B981" />
@@ -880,16 +923,16 @@ export default function HomeScreen() {
                     {/* Info */}
                     <View style={styles.taskInfo}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                        <Text style={[styles.taskName, done && styles.taskNameDone, locked && styles.taskNameLocked]}>
+                        <Text style={[styles.taskName, done && styles.taskNameDone, locked && styles.taskNameLocked, isDark && { color: C.gray900 }]}>
                           {task.label}
                         </Text>
                         {task.vip && (
-                          <View style={styles.vipBadge}>
-                            <Text style={styles.vipBadgeText}>👑 VIP</Text>
+                          <View style={[styles.vipBadge, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}>
+                            <Text style={[styles.vipBadgeText, isDark && { color: C.gray400 }]}>👑 VIP</Text>
                           </View>
                         )}
                       </View>
-                      <Text style={styles.taskSub}>
+                      <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>
                         {locked ? `${task.sub} · VIP exclusive` : task.sub}
                       </Text>
                     </View>
@@ -924,50 +967,73 @@ export default function HomeScreen() {
             );
           })()}
 
-          {/* ── Stats Row ── */}
-          <View style={styles.statsRow}>
-            {/* Spots — opens detail modal */}
+          {/* ── Today's Stats Row ── */}
+          <Text style={[styles.todayLabel, isDark && { color: C.gray500 }]}>Today</Text>
+          {todayScans === 0 ? (
             <TouchableOpacity
-              style={[styles.statCard, styles.statSpots]}
-              onPress={() => setSpotsModalVisible(true)}
-              activeOpacity={0.75}
+              style={styles.todayCta}
+              onPress={() => router.push("/(tabs)/camera")}
+              activeOpacity={0.85}
             >
-              <View style={[styles.statDot, { backgroundColor: "#FB7185" }]} />
-              <Text style={[styles.statVal, { color: "#FB7185" }]}>
-                {stats?.latest_count ?? "--"}
-              </Text>
-              <Text style={styles.statLbl}>Spots</Text>
-              <ChevronRight size={10} color="#FB7185" style={{ marginTop: 2 }} />
+              <LinearGradient
+                colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F3", "#FCE7F3"]}
+                style={[styles.todayCtaInner, isDark && { borderColor: C.gray200 }]}
+              >
+                <CameraIcon size={20} color={Colors.rose400} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.todayCtaTitle, isDark && { color: C.gray900 }]}>No scan yet today</Text>
+                  <Text style={[styles.todayCtaSub, isDark && { color: C.gray400 }]}>
+                    Take a quick photo to update your daily stats
+                  </Text>
+                </View>
+                <ChevronRight size={16} color={Colors.rose400} />
+              </LinearGradient>
             </TouchableOpacity>
+          ) : (
+            <View style={styles.statsRow}>
+              {/* Spots — opens detail modal */}
+              <TouchableOpacity
+                style={[styles.statCard, styles.statSpots, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}
+                onPress={() => setSpotsModalVisible(true)}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.statDot, { backgroundColor: "#FB7185" }]} />
+                <Text style={[styles.statVal, { color: "#FB7185" }]}>
+                  {todaySpots ?? "--"}
+                </Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Spots</Text>
+                <ChevronRight size={10} color="#FB7185" style={{ marginTop: 2 }} />
+              </TouchableOpacity>
 
-            {/* Skin Score — goes to report */}
-            <TouchableOpacity
-              style={[styles.statCard, styles.statScore]}
-              onPress={() => router.push("/(tabs)/report")}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.statDot, { backgroundColor: "#F472B6" }]} />
-              <Text style={[styles.statVal, { color: "#F472B6" }]}>
-                {stats?.latest_score ?? "--"}
-              </Text>
-              <Text style={styles.statLbl}>Skin Score</Text>
-              <ChevronRight size={10} color="#F472B6" style={{ marginTop: 2 }} />
-            </TouchableOpacity>
+              {/* Skin Score — goes to report */}
+              <TouchableOpacity
+                style={[styles.statCard, styles.statScore, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}
+                onPress={() => router.push("/(tabs)/report")}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.statDot, { backgroundColor: "#F472B6" }]} />
+                <Text style={[styles.statVal, { color: "#F472B6" }]}>
+                  {todayScore ?? "--"}
+                </Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Skin Score</Text>
+                <ChevronRight size={10} color="#F472B6" style={{ marginTop: 2 }} />
+              </TouchableOpacity>
 
-            {/* Total Scans — goes to history */}
-            <TouchableOpacity
-              style={[styles.statCard, styles.statScans]}
-              onPress={() => router.push("/(tabs)/history")}
-              activeOpacity={0.75}
-            >
-              <View style={[styles.statDot, { backgroundColor: "#10B981" }]} />
-              <Text style={[styles.statVal, { color: "#10B981" }]}>
-                {stats?.total_scans ?? 0}
-              </Text>
-              <Text style={styles.statLbl}>Total Scans</Text>
-              <ChevronRight size={10} color="#10B981" style={{ marginTop: 2 }} />
-            </TouchableOpacity>
-          </View>
+              {/* Today's Scans — goes to history */}
+              <TouchableOpacity
+                style={[styles.statCard, styles.statScans, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}
+                onPress={() => router.push("/(tabs)/history")}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.statDot, { backgroundColor: "#10B981" }]} />
+                <Text style={[styles.statVal, { color: "#10B981" }]}>
+                  {todayScans}
+                </Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Scans</Text>
+                <ChevronRight size={10} color="#10B981" style={{ marginTop: 2 }} />
+              </TouchableOpacity>
+            </View>
+          )}
 
           {/* ── Weekly Insight ── */}
           <WeeklyInsightCard insight={insight} isVip={isVip} />
@@ -977,19 +1043,19 @@ export default function HomeScreen() {
             onPress={() => router.push("/chat")}
             activeOpacity={0.85}
           >
-            <LinearGradient colors={["#FFF0F6", "#FFF5FB"]} style={styles.aiCard}>
+            <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFF5FB"]} style={[styles.aiCard, isDark && { borderColor: C.gray200 }]}>
               <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.aiAvatarGrad}>
                 <Sparkles size={16} color="#fff" />
               </LinearGradient>
               <View style={styles.aiInfo}>
                 <View style={styles.aiTitleRow}>
-                  <Text style={styles.aiTitle}>AI Skin Advisor</Text>
+                  <Text style={[styles.aiTitle, isDark && { color: C.gray900 }]}>AI Skin Advisor</Text>
                   <View style={styles.aiLivePill}>
                     <Text style={styles.aiLiveDot}>●</Text>
                     <Text style={styles.aiLiveText}>Live</Text>
                   </View>
                 </View>
-                <Text style={styles.aiSub} numberOfLines={2}>
+                <Text style={[styles.aiSub, isDark && { color: C.gray400 }]} numberOfLines={2}>
                   {dailyAdvice || "Tap to get personalized advice from your AI consultant"}
                 </Text>
               </View>
@@ -1000,10 +1066,10 @@ export default function HomeScreen() {
           {/* ── Guest banner ── */}
           {isGuest && (
             <TouchableOpacity onPress={() => router.push("/(tabs)/profile")} activeOpacity={0.85}>
-              <LinearGradient colors={["#FFF0F6", "#FFE4E6"]} style={styles.guestBanner}>
+              <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFE4E6"]} style={[styles.guestBanner, isDark && { borderWidth: 1, borderColor: C.gray200 }]}>
                 <User size={13} color={Colors.rose400} />
-                <Text style={styles.guestText}>Sign up to sync your data across devices</Text>
-                <Text style={styles.guestArrow}>→</Text>
+                <Text style={[styles.guestText, isDark && { color: C.gray400 }]}>Sign up to sync your data across devices</Text>
+                <Text style={[styles.guestArrow, isDark && { color: C.gray400 }]}>→</Text>
               </LinearGradient>
             </TouchableOpacity>
           )}
@@ -1059,8 +1125,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  greeting: { fontSize: 11, fontWeight: "500", color: "#F472B6", marginBottom: 3 },
-  userName: { fontSize: 22, fontWeight: "700", color: "#1F2937", letterSpacing: -0.4 },
+  greeting: { fontSize: FontSize.xxl, fontWeight: "700", color: Colors.gray800, letterSpacing: -0.4 },
+  dayMessage: {
+    fontSize: FontSize.sm,
+    color: Colors.rose400,
+    fontWeight: "600",
+    marginTop: 4,
+    lineHeight: 18,
+  },
   streakBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1295,6 +1367,35 @@ const styles = StyleSheet.create({
   tipText: { fontSize: 14, color: "#374151", lineHeight: 22, textAlign: "center", fontWeight: "500" },
 
   // ── Stats Row
+  todayLabel: {
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+    color: Colors.gray400,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 6,
+    marginTop: 4,
+  },
+  todayCta: { marginBottom: 14 },
+  todayCtaInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: Radius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: "#F9D5E8",
+  },
+  todayCtaTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: "700",
+    color: Colors.gray800,
+  },
+  todayCtaSub: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    marginTop: 2,
+  },
   statsRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   statCard: {
     width: sw,

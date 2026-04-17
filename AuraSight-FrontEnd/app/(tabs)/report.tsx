@@ -47,6 +47,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, router } from "expo-router";
 import { getUserId } from "../../lib/userId";
 import { SensitiveGate } from "../../lib/sensitiveGate";
+import { useAppTheme } from "../../lib/themeContext";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -105,11 +106,12 @@ function generateSummary(data: ReportData): string {
 // 用户打开 Report 页面的第一个问题是："我变了多少？"
 // 这个组件直接回答这个问题，不需要用户滚动去寻找。
 function BeforeAfterHero({ data }: { data: ReportData }) {
+  const { colors: C, shadow: S, isDark } = useAppTheme();
   const isImproved = data.score_change_pct >= 0;
   const summary = generateSummary(data);
 
   return (
-    <View style={st.heroCard}>
+    <View style={[st.heroCard, isDark && { backgroundColor: C.cardBg, ...S.card }]}>
       {/* 前后对比图 */}
       <View style={st.compareRow}>
         {/* Before */}
@@ -194,9 +196,9 @@ function BeforeAfterHero({ data }: { data: ReportData }) {
       </View>
 
       {/* 总结语：规则引擎生成的个性化文字 */}
-      <View style={st.summaryBox}>
-        <Sparkles size={14} color={Colors.rose400} />
-        <Text style={st.summaryText}>{summary}</Text>
+      <View style={[st.summaryBox, isDark && { backgroundColor: "rgba(244,63,143,0.1)", borderColor: "rgba(244,63,143,0.2)" }]}>
+        <Sparkles size={14} color={isDark ? C.pink500 : Colors.rose400} />
+        <Text style={[st.summaryText, isDark && { color: C.gray300 }]}>{summary}</Text>
       </View>
     </View>
   );
@@ -207,6 +209,7 @@ function BeforeAfterHero({ data }: { data: ReportData }) {
 // 这部分是给"想看数字"的用户的，放在 Before/After 之后
 
 function ScoreLineChart({ data }: { data: DailyScore[] }) {
+  const { colors: C, isDark } = useAppTheme();
   const H = 80;
 
   if (data.length < 2) {
@@ -214,7 +217,7 @@ function ScoreLineChart({ data }: { data: DailyScore[] }) {
       <View
         style={{ height: H, alignItems: "center", justifyContent: "center" }}
       >
-        <Text style={{ fontSize: FontSize.xs, color: Colors.gray300 }}>
+        <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray300 }}>
           Scan more days to see your trend
         </Text>
       </View>
@@ -265,7 +268,7 @@ function ScoreLineChart({ data }: { data: DailyScore[] }) {
           y1={H * r}
           x2={CHART_W}
           y2={H * r}
-          stroke={Colors.gray100}
+          stroke={isDark ? C.gray600 : Colors.gray100}
           strokeWidth={1}
           strokeDasharray="3 3"
         />
@@ -325,6 +328,7 @@ function DonutChart({
 }: {
   breakdown: ReportData["acne_breakdown"];
 }) {
+  const { colors: C, isDark } = useAppTheme();
   const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
   const size = 112;
   const r = 40;
@@ -336,7 +340,7 @@ function DonutChart({
       <View
         style={{ height: 112, alignItems: "center", justifyContent: "center" }}
       >
-        <Text style={{ fontSize: FontSize.xs, color: Colors.gray300 }}>
+        <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray300 }}>
           No acne data yet
         </Text>
       </View>
@@ -390,12 +394,12 @@ function DonutChart({
             style={{
               fontSize: FontSize.xxl,
               fontWeight: "700",
-              color: Colors.gray800,
+              color: isDark ? C.white : Colors.gray800,
             }}
           >
             {total}
           </Text>
-          <Text style={{ fontSize: 9, color: Colors.gray500 }}>Total</Text>
+          <Text style={{ fontSize: 9, color: isDark ? C.gray400 : Colors.gray500 }}>Total</Text>
         </View>
       </View>
       <View style={{ flex: 1, gap: 8 }}>
@@ -413,7 +417,7 @@ function DonutChart({
               }}
             />
             <Text
-              style={{ flex: 1, fontSize: FontSize.xs, color: Colors.gray600 }}
+              style={{ flex: 1, fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray600 }}
             >
               {item.label}
             </Text>
@@ -421,7 +425,7 @@ function DonutChart({
               style={{
                 fontSize: FontSize.xs,
                 fontWeight: "700",
-                color: Colors.gray800,
+                color: isDark ? C.white : Colors.gray800,
               }}
             >
               {breakdown[item.key as keyof typeof breakdown]}
@@ -442,6 +446,7 @@ const TAG_EMOJI: Record<string, string> = {
 };
 
 function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: string }) {
+  const { colors: C, isDark } = useAppTheme();
   const [correlations, setCorrelations] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -459,14 +464,14 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
   const impactLabel = (impact: number) => impact > 3 ? "↑ Better skin" : impact < -3 ? "↓ Worse skin" : "→ Neutral";
 
   return (
-    <View style={st.diaryCard}>
+    <View style={[st.diaryCard, isDark && { backgroundColor: C.cardBg }]}>
       <View style={st.diaryHeader}>
-        <View style={st.diaryIconBg}>
+        <View style={[st.diaryIconBg, isDark && { backgroundColor: "rgba(244,63,143,0.15)" }]}>
           <Text style={{ fontSize: 14 }}>📔</Text>
         </View>
         <View>
-          <Text style={st.diaryTitle}>Diary Patterns</Text>
-          <Text style={st.diarySub}>Based on your logged entries</Text>
+          <Text style={[st.diaryTitle, isDark && { color: C.white }]}>Diary Patterns</Text>
+          <Text style={[st.diarySub, isDark && { color: C.gray400 }]}>Based on your logged entries</Text>
         </View>
       </View>
 
@@ -478,11 +483,11 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
         <>
           <View style={st.diaryInsightRow}>
             <Text style={st.diaryInsightEmoji}>💤</Text>
-            <Text style={st.diaryInsightText}>Keep logging — patterns emerge after a few diary entries.</Text>
+            <Text style={[st.diaryInsightText, isDark && { color: C.gray400 }]}>Keep logging — patterns emerge after a few diary entries.</Text>
           </View>
           <View style={st.diaryInsightRow}>
             <Text style={st.diaryInsightEmoji}>💧</Text>
-            <Text style={st.diaryInsightText}>Water intake and sleep quality correlations will appear here.</Text>
+            <Text style={[st.diaryInsightText, isDark && { color: C.gray400 }]}>Water intake and sleep quality correlations will appear here.</Text>
           </View>
         </>
       ) : (
@@ -490,9 +495,9 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
           <View key={i} style={st.diaryInsightRow}>
             <Text style={st.diaryInsightEmoji}>{TAG_EMOJI[c.tag] ?? "📌"}</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[st.diaryInsightText, { fontWeight: "600", color: Colors.gray700 }]}>
+              <Text style={[st.diaryInsightText, { fontWeight: "600", color: isDark ? C.white : Colors.gray700 }]}>
                 {c.tag.replace(/_/g, " ")}
-                <Text style={{ color: Colors.gray400 }}> ({c.count}×)</Text>
+                <Text style={{ color: isDark ? C.gray400 : Colors.gray400 }}> ({c.count}×)</Text>
               </Text>
               <Text style={{ fontSize: FontSize.xs, color: impactColor(c.impact) }}>
                 {impactLabel(c.impact)} · avg score {c.avg_score}
@@ -502,8 +507,8 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
         ))
       )}
 
-      <View style={st.diaryFooter}>
-        <Text style={st.diaryFooterText}>
+      <View style={[st.diaryFooter, isDark && { backgroundColor: "rgba(244,63,143,0.1)" }]}>
+        <Text style={[st.diaryFooterText, isDark && { color: C.pink500 }]}>
           The more you log, the smarter the analysis gets.
         </Text>
       </View>
@@ -514,6 +519,7 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
 // ─── Chapter 4: VIP 升级区块 ─────────────────────────────
 // ─── Deep Analysis Card (VIP only) ───────────────────────
 function DeepAnalysisCard({ userId }: { userId: string }) {
+  const { colors: C, shadow: S, isDark } = useAppTheme();
   const [analysis, setAnalysis] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -532,12 +538,12 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
 
   if (!analysis && !loading && !error) {
     return (
-      <View style={[st.card, Shadow.card]}>
+      <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: Spacing.md }}>
           <Crown size={16} color="#d97706" />
           <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
         </View>
-        <Text style={{ fontSize: FontSize.sm, color: Colors.gray600, marginBottom: Spacing.md, lineHeight: 20 }}>
+        <Text style={{ fontSize: FontSize.sm, color: isDark ? C.gray400 : Colors.gray600, marginBottom: Spacing.md, lineHeight: 20 }}>
           Uncover how your lifestyle habits — sleep, diet, hydration, stress — are affecting your skin.
         </Text>
         <TouchableOpacity onPress={load} style={{ backgroundColor: "#d97706", borderRadius: Radius.full, paddingVertical: 12, alignItems: "center" }}>
@@ -548,42 +554,42 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
   }
 
   if (loading) return (
-    <View style={[st.card, Shadow.card, { alignItems: "center", paddingVertical: 32 }]}>
+    <View style={[st.card, S.card, { alignItems: "center", paddingVertical: 32 }, isDark && { backgroundColor: C.cardBg }]}>
       <ActivityIndicator color="#d97706" />
-      <Text style={{ color: Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>Analyzing your lifestyle patterns…</Text>
+      <Text style={{ color: isDark ? C.gray400 : Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>Analyzing your lifestyle patterns…</Text>
     </View>
   );
 
   if (error) return (
-    <View style={[st.card, Shadow.card]}>
-      <Text style={{ color: Colors.gray500, fontSize: FontSize.sm, textAlign: "center", lineHeight: 20 }}>{error}</Text>
+    <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
+      <Text style={{ color: isDark ? C.gray400 : Colors.gray500, fontSize: FontSize.sm, textAlign: "center", lineHeight: 20 }}>{error}</Text>
     </View>
   );
 
   const impactColor = (label: string) => label === "positive" ? "#10b981" : label === "negative" ? "#f43f5e" : "#94a3b8";
 
   return (
-    <View style={[st.card, Shadow.card]}>
+    <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: 4 }}>
         <Crown size={16} color="#d97706" />
         <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
       </View>
       {/* 窗口副标题：诚实地反映这次分析基于多少数据 */}
       {(analysis.window_label || analysis.scan_count != null) && (
-        <Text style={{ fontSize: FontSize.xs, color: Colors.gray500, marginBottom: Spacing.sm }}>
+        <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, marginBottom: Spacing.sm }}>
           Based on {analysis.scan_count ?? "?"} scan{analysis.scan_count === 1 ? "" : "s"}
           {analysis.window_label ? ` over ${analysis.window_label}` : ""}
           {analysis.data_confidence ? ` · confidence: ${analysis.data_confidence}` : ""}
         </Text>
       )}
       {analysis.limited_data && (
-        <View style={{ backgroundColor: "#fff7ed", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm, borderWidth: 1, borderColor: "#fed7aa" }}>
-          <Text style={{ fontSize: FontSize.xs, color: "#9a3412", lineHeight: 18 }}>
+        <View style={{ backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fff7ed", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(217,119,6,0.3)" : "#fed7aa" }}>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#f59e0b" : "#9a3412", lineHeight: 18 }}>
             ⏳ Early read: only a few days of data so far. Treat findings as initial patterns — not conclusions. Scan daily to sharpen the analysis.
           </Text>
         </View>
       )}
-      <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: Colors.gray800, marginBottom: Spacing.md, lineHeight: 24 }}>
+      <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.md, lineHeight: 24 }}>
         {analysis.headline}
       </Text>
 
@@ -591,45 +597,45 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
       {(analysis.lifestyle_insights ?? []).map((ins: any, i: number) => (
         <View key={i} style={{ borderLeftWidth: 3, borderLeftColor: impactColor(ins.impact), paddingLeft: Spacing.sm, marginBottom: Spacing.md }}>
           <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-            <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: Colors.gray800 }}>{ins.factor}</Text>
+            <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: isDark ? C.white : Colors.gray800 }}>{ins.factor}</Text>
             <Text style={{ fontSize: FontSize.xs, color: impactColor(ins.impact), fontWeight: "600" }}>{ins.score_effect}</Text>
           </View>
-          <Text style={{ fontSize: FontSize.xs, color: Colors.gray500, marginTop: 2, lineHeight: 18 }}>{ins.finding}</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, marginTop: 2, lineHeight: 18 }}>{ins.finding}</Text>
         </View>
       ))}
 
       {/* Best / Worst habit */}
       {analysis.best_habit && (
-        <View style={{ backgroundColor: "#ecfdf5", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#065f46" }}>✅ Best habit</Text>
-          <Text style={{ fontSize: FontSize.xs, color: "#065f46", marginTop: 2 }}>{analysis.best_habit}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#ecfdf5", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#6ee7b7" : "#065f46" }}>✅ Best habit</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#6ee7b7" : "#065f46", marginTop: 2 }}>{analysis.best_habit}</Text>
         </View>
       )}
       {analysis.worst_habit && (
-        <View style={{ backgroundColor: "#fff1f2", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#9f1239" }}>⚠️ Pattern to break</Text>
-          <Text style={{ fontSize: FontSize.xs, color: "#9f1239", marginTop: 2 }}>{analysis.worst_habit}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(244,63,94,0.15)" : "#fff1f2", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#f472b6" : "#9f1239" }}>⚠️ Pattern to break</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#f472b6" : "#9f1239", marginTop: 2 }}>{analysis.worst_habit}</Text>
         </View>
       )}
 
       {/* Prediction */}
       {analysis.prediction && (
-        <View style={{ backgroundColor: "#fefce8", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#854d0e" }}>🔮 Prediction</Text>
-          <Text style={{ fontSize: FontSize.xs, color: "#854d0e", marginTop: 2 }}>{analysis.prediction}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fefce8", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#f59e0b" : "#854d0e" }}>🔮 Prediction</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#f59e0b" : "#854d0e", marginTop: 2 }}>{analysis.prediction}</Text>
         </View>
       )}
 
       {/* Next experiment */}
       {analysis.next_experiment && (
-        <View style={{ backgroundColor: "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: "#0c4a6e" }}>🧪 Next experiment</Text>
-          <Text style={{ fontSize: FontSize.xs, color: "#0c4a6e", marginTop: 2 }}>{analysis.next_experiment}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(59,130,246,0.15)" : "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#60a5fa" : "#0c4a6e" }}>🧪 Next experiment</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#60a5fa" : "#0c4a6e", marginTop: 2 }}>{analysis.next_experiment}</Text>
         </View>
       )}
 
       <TouchableOpacity onPress={load} style={{ marginTop: Spacing.md, alignItems: "center" }}>
-        <Text style={{ fontSize: FontSize.xs, color: Colors.gray400 }}>↻ Refresh analysis</Text>
+        <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray500 : Colors.gray400 }}>↻ Refresh analysis</Text>
       </TouchableOpacity>
     </View>
   );
@@ -644,6 +650,8 @@ function VIPUpgradeSection({
   userId: string;
   onUpgrade: () => void;
 }) {
+  const { colors: C, isDark } = useAppTheme();
+
   if (isVip) {
     return <DeepAnalysisCard userId={userId} />;
   }
@@ -651,7 +659,7 @@ function VIPUpgradeSection({
   // 免费用户看到的是一个"功能预览"卡片，不是被遮住的内容
   // 设计逻辑：让用户看到真实价值，而不是制造人工的 FOMO
   return (
-    <View style={st.vipPreviewCard}>
+    <View style={[st.vipPreviewCard, isDark && { backgroundColor: C.cardBg }]}>
       {/* 深色 Hero 区 */}
       <View style={st.vipPreviewHero}>
         <Lock size={16} color="rgba(255,255,255,0.4)" />
@@ -668,20 +676,20 @@ function VIPUpgradeSection({
             key={i}
             style={[
               st.vipPreviewRow,
-              i < mockInsights.length - 1 && st.vipPreviewRowBorder,
+              i < mockInsights.length - 1 && [st.vipPreviewRowBorder, isDark && { borderBottomColor: C.gray700 }],
             ]}
           >
-            <View style={st.vipPreviewEmojiBg}>
+            <View style={[st.vipPreviewEmojiBg, isDark && { backgroundColor: "rgba(244,63,143,0.15)" }]}>
               <Text style={{ fontSize: 16 }}>{ins.icon}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={st.vipPreviewItemTitle}>{ins.title}</Text>
+              <Text style={[st.vipPreviewItemTitle, isDark && { color: C.white }]}>{ins.title}</Text>
               {/* 内容用模糊遮罩处理：标题可见，描述模糊 */}
-              <Text style={st.vipPreviewItemDesc} numberOfLines={1}>
+              <Text style={[st.vipPreviewItemDesc, isDark && { color: C.gray600 }]} numberOfLines={1}>
                 {ins.desc}
               </Text>
             </View>
-            <Lock size={12} color={Colors.gray200} />
+            <Lock size={12} color={isDark ? C.gray600 : Colors.gray200} />
           </View>
         ))}
       </View>
@@ -715,6 +723,8 @@ function AIReportBody({
   text: string;
   streaming: boolean;
 }) {
+  const { colors: C, isDark } = useAppTheme();
+
   if (!text) return null;
   // 按 `## ` 切块。若全文没有 heading，就整个当一个无标题块。
   const blocks: { title?: string; body: string }[] = [];
@@ -736,11 +746,11 @@ function AIReportBody({
     <View>
       {blocks.map((b, i) => (
         <View key={i} style={st.aiBlock}>
-          {b.title && <Text style={st.aiBlockTitle}>{b.title}</Text>}
-          <Text style={st.aiReportText}>
+          {b.title && <Text style={[st.aiBlockTitle, isDark && { color: C.pink500 }]}>{b.title}</Text>}
+          <Text style={[st.aiReportText, isDark && { color: C.gray300 }]}>
             {b.body.trim()}
             {streaming && i === blocks.length - 1 ? (
-              <Text style={st.aiCaret}>▋</Text>
+              <Text style={[st.aiCaret, isDark && { color: C.pink500 }]}>▋</Text>
             ) : null}
           </Text>
         </View>
@@ -790,6 +800,8 @@ function ShareProgressModal({
       /* 用户取消，忽略 */
     }
   }
+
+  const { colors: C, isDark } = useAppTheme();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -876,7 +888,7 @@ function ShareProgressModal({
             </View>
           </LinearGradient>
 
-          <Text style={st.shareHint}>
+          <Text style={[st.shareHint, isDark && { color: "rgba(255,255,255,0.75)" }]}>
             📱 Screenshot this card to share the visual. The button below sends
             a text summary with your invite code.
           </Text>
@@ -929,6 +941,7 @@ function ShareOption({
 
 // ─── 主页面 ───────────────────────────────────────────────
 export default function ReportScreen() {
+  const { colors: C, shadow: S, isDark } = useAppTheme();
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isVip, setIsVip] = useState(false);
@@ -1005,8 +1018,10 @@ export default function ReportScreen() {
   if (loading) {
     return (
       <SensitiveGate>
-        <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.center}>
-          <ActivityIndicator size="large" color={Colors.rose400} />
+        <LinearGradient
+          colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+          style={st.center}>
+          <ActivityIndicator size="large" color={isDark ? C.pink500 : Colors.rose400} />
         </LinearGradient>
       </SensitiveGate>
     );
@@ -1016,7 +1031,9 @@ export default function ReportScreen() {
   if (!data || data.total_scans === 0) {
     return (
       <SensitiveGate>
-      <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
+      <LinearGradient
+        colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+        style={st.container}>
         <SafeAreaView style={st.center}>
           <View style={st.emptyIconWrapper}>
             <Text style={{ fontSize: 40 }}>📊</Text>
@@ -1044,7 +1061,9 @@ export default function ReportScreen() {
 
   return (
     <SensitiveGate>
-    <LinearGradient colors={["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
+    <LinearGradient
+      colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+      style={st.container}>
       <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
@@ -1052,9 +1071,9 @@ export default function ReportScreen() {
         >
           {/* 标题区 */}
           <View style={st.titleArea}>
-            <Text style={st.pageTitle}>Your Report</Text>
+            <Text style={[st.pageTitle, isDark && { color: C.white }]}>Your Report</Text>
             {data.date_range && (
-              <Text style={st.dateRange}>
+              <Text style={[st.dateRange, isDark && { color: C.gray400 }]}>
                 {data.date_range.from} — {data.date_range.to}
               </Text>
             )}
@@ -1067,15 +1086,15 @@ export default function ReportScreen() {
           {/* ── Chapter 2: 数据支撑 ── */}
           {/* 三个关键数字 */}
           <View style={st.statsRow}>
-            <View style={[st.statCard, Shadow.card]}>
-              <Text style={st.statVal}>{data.total_scans}</Text>
-              <Text style={st.statLbl}>Scans</Text>
+            <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+              <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.total_scans}</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Scans</Text>
             </View>
-            <View style={[st.statCard, Shadow.card]}>
-              <Text style={st.statVal}>{data.avg_skin_score}</Text>
-              <Text style={st.statLbl}>Avg Score</Text>
+            <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+              <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.avg_skin_score}</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Avg Score</Text>
             </View>
-            <View style={[st.statCard, Shadow.card]}>
+            <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 4 }}
               >
@@ -1094,28 +1113,28 @@ export default function ReportScreen() {
                   {data.score_change_pct}%
                 </Text>
               </View>
-              <Text style={st.statLbl}>Change</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Change</Text>
             </View>
           </View>
 
           {/* 折线图卡片 */}
-          <View style={[st.card, Shadow.card]}>
+          <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
             <View style={st.cardHeaderRow}>
-              <Text style={st.cardTitle}>Score Trend</Text>
-              <Text style={st.cardSub}>{data.streak} day streak 🔥</Text>
+              <Text style={[st.cardTitle, isDark && { color: C.white }]}>Score Trend</Text>
+              <Text style={[st.cardSub, isDark && { color: C.gray400 }]}>{data.streak} day streak 🔥</Text>
             </View>
             <ScoreLineChart data={data.daily_scores} />
             <View style={st.chartAxisRow}>
-              <Text style={st.chartAxisLabel}>Day 1</Text>
-              <Text style={st.chartAxisLabel}>Today</Text>
+              <Text style={[st.chartAxisLabel, isDark && { color: C.gray400 }]}>Day 1</Text>
+              <Text style={[st.chartAxisLabel, isDark && { color: C.gray400 }]}>Today</Text>
             </View>
           </View>
 
           {/* 痘痘分布卡片 */}
           {Object.values(data.acne_breakdown).reduce((a, b) => a + b, 0) >
             0 && (
-            <View style={[st.card, Shadow.card]}>
-              <Text style={st.cardTitle}>Condition Breakdown</Text>
+            <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
+              <Text style={[st.cardTitle, isDark && { color: C.white }]}>Condition Breakdown</Text>
               <DonutChart breakdown={data.acne_breakdown} />
             </View>
           )}
@@ -1125,8 +1144,10 @@ export default function ReportScreen() {
 
           {/* ── AI Report Card ── */}
           <TouchableOpacity onPress={handleGenerateAIReport} activeOpacity={0.85}>
-            <LinearGradient colors={["#F43F8F", "#F472B6", "#FB9FBD"]} style={st.aiReportCard}>
-              <View style={st.aiReportIconBg}>
+            <LinearGradient
+              colors={isDark ? ["#d946ef", "#ec4899"] : ["#F43F8F", "#F472B6", "#FB9FBD"]}
+              style={[st.aiReportCard, isDark && { shadowColor: "transparent" }]}>
+              <View style={[st.aiReportIconBg, isDark && { backgroundColor: "rgba(255,255,255,0.15)" }]}>
                 <Sparkles size={20} color="#fff" />
               </View>
               <View style={st.aiReportInfo}>
@@ -1141,22 +1162,22 @@ export default function ReportScreen() {
           <TouchableOpacity
             onPress={() => setShareVisible(true)}
             activeOpacity={0.85}
-            style={st.shareCard}
+            style={[st.shareCard, isDark && { backgroundColor: C.cardBg, borderColor: "rgba(244,63,143,0.2)" }]}
           >
-            <View style={st.shareIconBg}>
+            <View style={[st.shareIconBg, isDark && { backgroundColor: "rgba(244,63,143,0.15)" }]}>
               <Text style={{ fontSize: 20 }}>📸</Text>
             </View>
             <View style={st.shareInfo}>
-              <Text style={st.shareTitle}>Share my progress</Text>
-              <Text style={st.shareSub}>
+              <Text style={[st.shareTitle, isDark && { color: C.white }]}>Share my progress</Text>
+              <Text style={[st.shareSub, isDark && { color: C.gray400 }]}>
                 Get a shareable image to post (no face shown)
               </Text>
             </View>
-            <ChevronRight size={18} color={Colors.gray400} />
+            <ChevronRight size={18} color={isDark ? C.gray500 : Colors.gray400} />
           </TouchableOpacity>
 
           {/* ── Chapter 4: VIP 深度分析 ── */}
-          <Text style={st.chapterLabel}>Deep Analysis</Text>
+          <Text style={[st.chapterLabel, isDark && { color: C.gray500 }]}>Deep Analysis</Text>
           <VIPUpgradeSection
             isVip={isVip}
             userId={userId}
@@ -1183,25 +1204,29 @@ export default function ReportScreen() {
       {/* ── AI Report Modal ── */}
       <Modal visible={aiModalVisible} transparent animationType="slide" onRequestClose={() => setAiModalVisible(false)}>
         <Pressable style={st.aiModalOverlay} onPress={() => setAiModalVisible(false)}>
-          <Pressable style={st.aiModalSheet} onPress={() => {}}>
-            <View style={st.aiModalHandle} />
-            <View style={st.aiModalHeader}>
-              <LinearGradient colors={["#F43F8F", "#F472B6"]} style={st.aiModalAvatar}>
+          <Pressable
+            style={[st.aiModalSheet, isDark && { backgroundColor: C.cardBg }]}
+            onPress={() => {}}>
+            <View style={[st.aiModalHandle, isDark && { backgroundColor: C.gray700 }]} />
+            <View style={[st.aiModalHeader, isDark && { borderBottomColor: "rgba(244,63,143,0.2)" }]}>
+              <LinearGradient
+                colors={isDark ? ["#d946ef", "#ec4899"] : ["#F43F8F", "#F472B6"]}
+                style={st.aiModalAvatar}>
                 <Sparkles size={16} color="#fff" />
               </LinearGradient>
               <View style={{ flex: 1 }}>
-                <Text style={st.aiModalTitle}>Your AI Skin Report</Text>
-                <Text style={st.aiModalSub}>Generated by Claude · {new Date().toLocaleDateString()}</Text>
+                <Text style={[st.aiModalTitle, isDark && { color: C.white }]}>Your AI Skin Report</Text>
+                <Text style={[st.aiModalSub, isDark && { color: C.gray400 }]}>Generated by Claude · {new Date().toLocaleDateString()}</Text>
               </View>
-              <TouchableOpacity onPress={() => setAiModalVisible(false)} style={st.aiModalClose}>
-                <X size={18} color="#6B7280" />
+              <TouchableOpacity onPress={() => setAiModalVisible(false)} style={[st.aiModalClose, isDark && { backgroundColor: C.gray700 }]}>
+                <X size={18} color={isDark ? C.gray400 : "#6B7280"} />
               </TouchableOpacity>
             </View>
             <ScrollView style={st.aiModalBody} showsVerticalScrollIndicator={false}>
               {aiReportLoading && !displayedAi ? (
                 <View style={st.aiLoadingBox}>
-                  <ActivityIndicator size="large" color="#F43F8F" />
-                  <Text style={st.aiLoadingText}>
+                  <ActivityIndicator size="large" color={isDark ? C.pink500 : "#F43F8F"} />
+                  <Text style={[st.aiLoadingText, isDark && { color: C.gray400 }]}>
                     Claude is analyzing your skin journey...
                   </Text>
                 </View>

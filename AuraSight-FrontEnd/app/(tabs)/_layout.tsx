@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { Colors, Gradients } from "../../constants/theme";
+import { useAppTheme } from "../../lib/themeContext";
 
 // ─── 普通 tab 图标——带"激活态胶囊"指示 ─────────────────────
 function TabIcon({
@@ -86,13 +87,22 @@ function CameraTabButton() {
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
+  const { colors: C, isDark } = useAppTheme();
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: [styles.tabBar, { paddingBottom: insets.bottom + 6 }],
+        tabBarStyle: [
+          styles.tabBar,
+          { paddingBottom: insets.bottom + 6 },
+          isDark && {
+            backgroundColor: "rgba(26,26,46,0.97)",
+            shadowColor: "#000",
+            shadowOpacity: 0.3,
+          },
+        ],
         tabBarActiveTintColor: Colors.rose400,
-        tabBarInactiveTintColor: Colors.gray400,
+        tabBarInactiveTintColor: C.gray400,
         tabBarLabelStyle: styles.tabLabel,
       }}
     >
