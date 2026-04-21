@@ -18,7 +18,10 @@ import {
   Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useT } from "../../lib/i18n";
 import { LinearGradient } from "expo-linear-gradient";
+import { FadeInComponent, StaggeredList } from "../../lib/animations";
+import Animated from "react-native-reanimated";
 import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import {
@@ -76,6 +79,10 @@ import {
   redeemReferral,
   HealthProfile,
   ReferralInfo,
+  SkinType,
+  SkinConcern,
+  RoutineLevel,
+  Climate,
 } from "../../lib/userApi";
 import {
   getReminderTime,
@@ -118,6 +125,7 @@ const EMPTY_META: ProfileMeta = {
 
 export default function ProfileScreen() {
   const { colors: C, shadow: S, isDark } = useAppTheme();
+  const { t } = useT();
   const { setUser: setCtxUser, clearUser: clearCtxUser } = useUser();
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -209,7 +217,7 @@ export default function ProfileScreen() {
       "Export your data",
       "We'll email a JSON export of all your scans and diary entries. This may take up to 24 hours.",
       [
-        { text: "Cancel", style: "cancel" },
+        { text: t("common.cancel"), style: "cancel" },
         {
           text: "Request Export",
           onPress: () =>
@@ -612,7 +620,7 @@ export default function ProfileScreen() {
       <LinearGradient colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
         <SafeAreaView style={styles.safeArea} edges={["top"]}>
           <View style={styles.topNav}>
-            <Text style={[styles.topNavTitle, isDark && { color: C.gray900 }]}>Profile</Text>
+            <Text style={[styles.topNavTitle, isDark && { color: C.gray900 }]}>{t("profile.title")}</Text>
             <TouchableOpacity
               onPress={() => router.push("/settings")}
               style={styles.settingsBtn}
@@ -654,7 +662,7 @@ export default function ProfileScreen() {
               {user.mode === "vip" && (
                 <View style={styles.vipTag}>
                   <Crown size={12} color="#fde68a" />
-                  <Text style={styles.vipTagText}>VIP Member</Text>
+                  <Text style={styles.vipTagText}>{t("profile.vipBadge")}</Text>
                 </View>
               )}
             </View>
@@ -671,7 +679,7 @@ export default function ProfileScreen() {
                 >
                   <Crown size={20} color="#fde68a" />
                   <View style={styles.vipCardText}>
-                    <Text style={styles.vipCardTitle}>Upgrade to VIP</Text>
+                    <Text style={styles.vipCardTitle}>{t("common.upgrade")}</Text>
                     <Text style={styles.vipCardSub}>
                       Try free 7 days · then $4.99/mo or $34.99/yr
                     </Text>
@@ -683,7 +691,7 @@ export default function ProfileScreen() {
 
             {/* ── Your Journey 数据卡 ── */}
             <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Your Journey</Text>
-            <View style={styles.statsGrid}>
+            <StaggeredList stagger={50} from="bottom" style={styles.statsGrid} itemStyle={{ flexGrow: 1, flexBasis: "22%", minWidth: 72 }}>
               <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
                   {meta.daysSinceJoined ?? "—"}
@@ -692,7 +700,7 @@ export default function ProfileScreen() {
               </View>
               <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>{stats?.total_scans ?? 0}</Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Scans</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.totalScans")}</Text>
               </View>
               <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <View style={styles.statInline}>
@@ -701,15 +709,15 @@ export default function ProfileScreen() {
                     {stats?.streak ?? 0}
                   </Text>
                 </View>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Streak</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.streak")}</Text>
               </View>
               <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
                 <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
                   {stats?.avg_skin_score ?? "—"}
                 </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Avg score</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.avgScore")}</Text>
               </View>
-            </View>
+            </StaggeredList>
 
             {/* ── 快捷操作 ── */}
             <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Quick actions</Text>
@@ -721,7 +729,7 @@ export default function ProfileScreen() {
               >
                 <Sparkles size={16} color={Colors.rose400} />
                 <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>30-day Report</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("report.title")}</Text>
                   <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
                     Trends, correlations, AI summary
                   </Text>
@@ -738,11 +746,12 @@ export default function ProfileScreen() {
                 <View style={styles.rowBtnText}>
                   <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Scan history</Text>
                   <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {stats?.total_scans ?? 0} scans
+                    {stats?.total_scans ?? 0} {t("profile.totalScans")}
                   </Text>
                 </View>
                 <ChevronRight size={16} color={Colors.gray400} />
               </TouchableOpacity>
+              {/* ── body composition 暂时隐藏 ──
               {user.mode === "vip" && (
                 <>
                   <View style={styles.divider} />
@@ -764,6 +773,7 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 </>
               )}
+              ── end hidden ── */}
             </View>
 
             {/* ── My Data ── */}
@@ -834,11 +844,11 @@ export default function ProfileScreen() {
                 onPress={() => setHealthOpen(true)}
                 activeOpacity={0.7}
               >
-                <Activity size={16} color={isDark ? C.gray400 : Colors.gray500} />
+                <Sparkles size={16} color={isDark ? C.gray400 : Colors.rose400} />
                 <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Health profile</Text>
+                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("profile.skinProfile")}</Text>
                   <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {formatHealthSummary(health)}
+                    {formatHealthSummary(health, t)}
                   </Text>
                 </View>
                 <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
@@ -936,7 +946,7 @@ export default function ProfileScreen() {
             {/* ── 登出 ── */}
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
               <LogOut size={16} color={Colors.red} />
-              <Text style={styles.logoutText}>Sign Out</Text>
+              <Text style={styles.logoutText}>{t("common.signIn")}</Text>
             </TouchableOpacity>
 
             {/* ── Modals ── */}
@@ -1209,12 +1219,12 @@ export default function ProfileScreen() {
 
 // ─── 辅助 ───────────────────────────────────────────────
 
-function formatHealthSummary(h: HealthProfile): string {
+function formatHealthSummary(h: HealthProfile, t: ReturnType<typeof useT>["t"]): string {
   const parts: string[] = [];
-  if (h.height_cm) parts.push(`${h.height_cm}cm`);
-  if (h.weight_kg) parts.push(`${h.weight_kg}kg`);
+  if (h.skin_type) parts.push(t(`profile.sp.${h.skin_type}`));
+  if (h.concerns?.length) parts.push(`${h.concerns.length} concern${h.concerns.length > 1 ? "s" : ""}`);
+  if (h.routine_level) parts.push(h.routine_level);
   if (h.gender) parts.push(h.gender);
-  if (h.birthday) parts.push(h.birthday);
   return parts.length ? parts.join(" · ") : "Tap to set up";
 }
 
@@ -1232,6 +1242,7 @@ function ModalShell({
   children: React.ReactNode;
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   return (
     <Modal
       visible={visible}
@@ -1271,6 +1282,7 @@ function EditProfileModal({
   onSave: (name: string, email: string) => void;
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   const [name, setName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
   useEffect(() => {
@@ -1310,7 +1322,7 @@ function EditProfileModal({
         activeOpacity={0.85}
       >
         <LinearGradient colors={Gradients.roseMain} style={styles.submitBtn}>
-          <Text style={styles.submitText}>Save</Text>
+          <Text style={styles.submitText}>{t("common.save")}</Text>
         </LinearGradient>
       </TouchableOpacity>
     </ModalShell>
@@ -1327,6 +1339,7 @@ function ChangePasswordModal({
   onSubmit: (oldPw: string, newPw: string) => void;
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   const [oldPw, setOldPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -1394,6 +1407,39 @@ function ChangePasswordModal({
   );
 }
 
+const SKIN_TYPES: { id: SkinType; emoji: string; label: string }[] = [
+  { id: "oily",        emoji: "💧", label: "Oily" },
+  { id: "dry",         emoji: "🏜️", label: "Dry" },
+  { id: "combination", emoji: "🔄", label: "Combination" },
+  { id: "sensitive",   emoji: "🌸", label: "Sensitive" },
+  { id: "normal",      emoji: "✨", label: "Normal" },
+];
+
+const CONCERN_OPTIONS: { id: SkinConcern; emoji: string; label: string }[] = [
+  { id: "acne",       emoji: "🔴", label: "Acne" },
+  { id: "dark_spots", emoji: "🟤", label: "Dark spots" },
+  { id: "wrinkles",   emoji: "〰️", label: "Wrinkles" },
+  { id: "redness",    emoji: "🩷", label: "Redness" },
+  { id: "pores",      emoji: "🔍", label: "Large pores" },
+  { id: "dryness",    emoji: "🥀", label: "Dryness" },
+  { id: "oiliness",   emoji: "🫧", label: "Excess oil" },
+];
+
+const ROUTINE_LEVELS: { id: RoutineLevel; emoji: string; label: string; desc: string }[] = [
+  { id: "none",     emoji: "🚫", label: "None",     desc: "No routine yet" },
+  { id: "simple",   emoji: "🧴", label: "Simple",   desc: "Cleanser + moisturizer" },
+  { id: "moderate", emoji: "🧪", label: "Moderate", desc: "+ serums / SPF" },
+  { id: "complex",  emoji: "💎", label: "Complex",  desc: "Full multi-step" },
+];
+
+const CLIMATE_OPTIONS: { id: Climate; emoji: string; label: string }[] = [
+  { id: "humid",     emoji: "🌊", label: "Humid" },
+  { id: "dry",       emoji: "☀️", label: "Dry" },
+  { id: "temperate", emoji: "🌤️", label: "Temperate" },
+  { id: "tropical",  emoji: "🌴", label: "Tropical" },
+  { id: "cold",      emoji: "❄️", label: "Cold" },
+];
+
 function HealthProfileModal({
   visible,
   onClose,
@@ -1406,101 +1452,182 @@ function HealthProfileModal({
   onSave: (patch: HealthProfile) => void;
 }) {
   const { colors: C, isDark } = useAppTheme();
-  const [heightStr, setHeightStr] = useState("");
-  const [weightStr, setWeightStr] = useState("");
+  const { t } = useT();
   const [gender, setGender] = useState<"male" | "female" | "other" | "">("");
   const [birthday, setBirthday] = useState("");
+  const [skinType, setSkinType] = useState<SkinType | "">("");
+  const [concerns, setConcerns] = useState<SkinConcern[]>([]);
+  const [routineLevel, setRoutineLevel] = useState<RoutineLevel | "">("");
+  const [allergies, setAllergies] = useState("");
+  const [climate, setClimate] = useState<Climate | "">("");
 
   useEffect(() => {
     if (visible) {
-      setHeightStr(initial.height_cm ? String(initial.height_cm) : "");
-      setWeightStr(initial.weight_kg ? String(initial.weight_kg) : "");
       setGender(initial.gender ?? "");
       setBirthday(initial.birthday ?? "");
+      setSkinType(initial.skin_type ?? "");
+      setConcerns(initial.concerns ?? []);
+      setRoutineLevel(initial.routine_level ?? "");
+      setAllergies(initial.allergies ?? "");
+      setClimate(initial.climate ?? "");
     }
   }, [visible, initial]);
 
+  function toggleConcern(c: SkinConcern) {
+    setConcerns(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c]);
+  }
+
   function submit() {
     const patch: HealthProfile = {};
-    const h = parseFloat(heightStr);
-    const w = parseFloat(weightStr);
-    if (!isNaN(h) && h > 0) patch.height_cm = h;
-    if (!isNaN(w) && w > 0) patch.weight_kg = w;
     if (gender) patch.gender = gender as "male" | "female" | "other";
-    // 简单校验日期格式 YYYY-MM-DD，不做日历组件
     if (birthday && /^\d{4}-\d{2}-\d{2}$/.test(birthday)) patch.birthday = birthday;
+    if (skinType) patch.skin_type = skinType as SkinType;
+    if (concerns.length) patch.concerns = concerns;
+    if (routineLevel) patch.routine_level = routineLevel as RoutineLevel;
+    if (allergies.trim()) patch.allergies = allergies.trim();
+    if (climate) patch.climate = climate as Climate;
     onSave(patch);
   }
 
-  return (
-    <ModalShell visible={visible} onClose={onClose} title="Health profile">
-      <Text style={[styles.modalHint, isDark && { color: C.gray400 }]}>
-        Used by Body Composition and future personalization features.
+  const dkCard = isDark ? { backgroundColor: C.cardBg, borderColor: C.gray200 } : {};
+  const dkTxt  = isDark ? { color: C.gray400 } : {};
+  const dkTxt2 = isDark ? { color: C.gray900 } : {};
+
+  // chip helper
+  const Chip = ({ active, label, emoji, onPress, wide }: {
+    active: boolean; label: string; emoji: string; onPress: () => void; wide?: boolean;
+  }) => (
+    <TouchableOpacity
+      onPress={onPress}
+      style={[
+        styles.genderBtn,
+        wide ? { flex: 0, paddingHorizontal: 14 } : {},
+        active && styles.genderBtnActive,
+        !active && dkCard,
+      ]}
+    >
+      <Text style={[styles.genderBtnText, active && styles.genderBtnTextActive, !active && dkTxt]}>
+        {emoji} {label}
       </Text>
-      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Height</Text>
-        <TextInput
-          style={[styles.input, isDark && { color: C.gray900 }]}
-          placeholder="cm"
-          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
-          value={heightStr}
-          onChangeText={setHeightStr}
-          keyboardType="numeric"
-        />
-      </View>
-      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Weight</Text>
-        <TextInput
-          style={[styles.input, isDark && { color: C.gray900 }]}
-          placeholder="kg"
-          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
-          value={weightStr}
-          onChangeText={setWeightStr}
-          keyboardType="numeric"
-        />
-      </View>
-      <View style={styles.genderRow}>
-        {(["male", "female", "other"] as const).map((g) => (
-          <TouchableOpacity
-            key={g}
-            onPress={() => setGender(g)}
-            style={[
-              styles.genderBtn,
-              gender === g && styles.genderBtnActive,
-              gender !== g && isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 },
-            ]}
-          >
-            <Text
-              style={[
-                styles.genderBtnText,
-                gender === g && styles.genderBtnTextActive,
-                gender !== g && isDark && { color: C.gray400 },
-              ]}
+    </TouchableOpacity>
+  );
+
+  return (
+    <ModalShell visible={visible} onClose={onClose} title={t("profile.skinProfile")}>
+      <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
+        {/* ── 提示语 ── */}
+        <Text style={[styles.modalHint, dkTxt, { marginBottom: 10 }]}>
+          Helps AI give you personalized skincare advice.
+        </Text>
+
+        {/* ── 肤质 ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.skinType")}</Text>
+        <View style={spStyles.chipWrap}>
+          {SKIN_TYPES.map(st => (
+            <Chip key={st.id} active={skinType === st.id} emoji={st.emoji} label={st.label}
+              onPress={() => setSkinType(skinType === st.id ? "" : st.id)} wide />
+          ))}
+        </View>
+
+        {/* ── 关注点（多选） ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.concerns")} <Text style={spStyles.sectionHint}>(select all that apply)</Text></Text>
+        <View style={spStyles.chipWrap}>
+          {CONCERN_OPTIONS.map(co => (
+            <Chip key={co.id} active={concerns.includes(co.id)} emoji={co.emoji} label={co.label}
+              onPress={() => toggleConcern(co.id)} wide />
+          ))}
+        </View>
+
+        {/* ── 护肤习惯 ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.routine")}</Text>
+        <View style={spStyles.chipWrap}>
+          {ROUTINE_LEVELS.map(rl => (
+            <Chip key={rl.id} active={routineLevel === rl.id} emoji={rl.emoji} label={rl.label}
+              onPress={() => setRoutineLevel(routineLevel === rl.id ? "" : rl.id)} wide />
+          ))}
+        </View>
+
+        {/* ── 气候 ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.climate")}</Text>
+        <View style={spStyles.chipWrap}>
+          {CLIMATE_OPTIONS.map(cl => (
+            <Chip key={cl.id} active={climate === cl.id} emoji={cl.emoji} label={cl.label}
+              onPress={() => setClimate(climate === cl.id ? "" : cl.id)} wide />
+          ))}
+        </View>
+
+        {/* ── 过敏 ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.allergies")}</Text>
+        <View style={[styles.inputWrap, dkCard]}>
+          <TextInput
+            style={[styles.input, isDark && { color: C.gray900 }]}
+            placeholder="e.g. niacinamide, fragrance, retinol…"
+            placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
+            value={allergies}
+            onChangeText={setAllergies}
+            autoCapitalize="none"
+          />
+        </View>
+
+        {/* ── 性别 & 生日 ── */}
+        <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.aboutYou")} <Text style={spStyles.sectionHint}>(optional)</Text></Text>
+        <View style={styles.genderRow}>
+          {(["male", "female", "other"] as const).map((g) => (
+            <TouchableOpacity
+              key={g}
+              onPress={() => setGender(gender === g ? "" : g)}
+              style={[styles.genderBtn, gender === g && styles.genderBtnActive, gender !== g && dkCard]}
             >
-              {g}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      <View style={[styles.inputWrap, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-        <Text style={[styles.inputPrefix, isDark && { color: C.gray400 }]}>Birthday</Text>
-        <TextInput
-          style={[styles.input, isDark && { color: C.gray900 }]}
-          placeholder="YYYY-MM-DD"
-          placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
-          value={birthday}
-          onChangeText={setBirthday}
-          autoCapitalize="none"
-        />
-      </View>
+              <Text style={[styles.genderBtnText, gender === g && styles.genderBtnTextActive, gender !== g && dkTxt]}>
+                {g === "male" ? "♂️" : g === "female" ? "♀️" : "⚧️"} {g}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={[styles.inputWrap, dkCard, { marginTop: 8 }]}>
+          <Text style={[styles.inputPrefix, dkTxt]}>{t("profile.sp.birthday")}</Text>
+          <TextInput
+            style={[styles.input, isDark && { color: C.gray900 }]}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
+            value={birthday}
+            onChangeText={setBirthday}
+            autoCapitalize="none"
+          />
+        </View>
+
+        <View style={{ height: 12 }} />
+      </ScrollView>
+
+      {/* ── Save ── */}
       <TouchableOpacity onPress={submit} activeOpacity={0.85}>
         <LinearGradient colors={Gradients.roseMain} style={styles.submitBtn}>
-          <Text style={styles.submitText}>Save</Text>
+          <Text style={styles.submitText}>{t("common.save")}</Text>
         </LinearGradient>
       </TouchableOpacity>
     </ModalShell>
   );
 }
+
+const spStyles = StyleSheet.create({
+  sectionTitle: {
+    fontSize: FontSize.sm,
+    fontWeight: "700",
+    color: Colors.gray700,
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  sectionHint: {
+    fontWeight: "400",
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+});
 
 function InviteModal({
   visible,
@@ -1516,6 +1643,7 @@ function InviteModal({
   onRedeem: (code: string) => void;
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   const [code, setCode] = useState("");
 
   return (
@@ -1569,6 +1697,8 @@ function InviteModal({
     </ModalShell>
   );
 }
+
+/* ── Skin Profile 选项定义 ── */
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

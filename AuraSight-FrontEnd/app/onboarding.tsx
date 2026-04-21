@@ -17,6 +17,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { useT } from "../lib/i18n";
 import Svg, {
   Path,
   Circle,
@@ -42,7 +43,7 @@ type PageDef = {
   eyebrow: string;
   titleLines: [string, string]; // plain + accent
   sub: string;
-  hero: "hook" | "proof" | "progress" | "cta";
+  hero: "hook" | "proof" | "progress" | "community" | "cta";
 };
 
 const PAGES: PageDef[] = [
@@ -66,6 +67,13 @@ const PAGES: PageDef[] = [
     titleLines: ["Your skin,", "day by day."],
     sub: "Scan daily. Watch trends emerge. Small changes add up to real ones.",
     hero: "progress",
+  },
+  {
+    id: "community",
+    eyebrow: "YOU'RE NOT ALONE",
+    titleLines: ["Real people,", "real skin."],
+    sub: "Share tips, ask questions, and learn from a community on the same journey.",
+    hero: "community",
   },
   {
     id: "cta",
@@ -584,6 +592,86 @@ function HeroCTA() {
   );
 }
 
+// Page 5: Community — avatars + speech bubbles showing real people sharing
+function HeroCommunity() {
+  const anims = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    Animated.stagger(
+      120,
+      anims.map((a) =>
+        Animated.spring(a, { toValue: 1, tension: 100, friction: 10, useNativeDriver: true })
+      )
+    ).start();
+  }, []);
+
+  const bubbles = [
+    { avatar: "🧑‍🦱", text: "My scars faded in 3 weeks!", colors: ["#b77cff", "#9b6ee8"] as const },
+    { avatar: "👩‍🦰", text: "Which moisturizer for oily skin?", colors: ["#ff9fc2", "#ff7ba8"] as const },
+    { avatar: "🧑‍🦳", text: "Day 30 streak — feeling great ✨", colors: ["#7ec8ff", "#5ba8e8"] as const },
+  ];
+
+  return (
+    <View style={heroSt.communityWrap}>
+      {/* Central community glow */}
+      <View style={heroSt.communityGlow} />
+
+      {/* Floating avatar ring */}
+      <View style={heroSt.avatarRing}>
+        {["👩", "🧑", "👱‍♀️", "👨‍🦱", "👩‍🦰", "🧑‍🦳"].map((e, i) => {
+          const angle = (i / 6) * 2 * Math.PI - Math.PI / 2;
+          const r = 100;
+          return (
+            <View
+              key={i}
+              style={[
+                heroSt.floatingAvatar,
+                {
+                  left: 130 + r * Math.cos(angle) - 20,
+                  top: 50 + r * Math.sin(angle) - 20,
+                },
+              ]}
+            >
+              <Text style={{ fontSize: 22 }}>{e}</Text>
+            </View>
+          );
+        })}
+        {/* Center heart */}
+        <View style={heroSt.centerHeart}>
+          <Text style={{ fontSize: 28 }}>💗</Text>
+        </View>
+      </View>
+
+      {/* Speech bubbles */}
+      {bubbles.map((b, i) => {
+        const translateY = anims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [30, 0],
+        });
+        return (
+          <Animated.View
+            key={i}
+            style={[
+              heroSt.bubble,
+              { opacity: anims[i], transform: [{ translateY }] },
+            ]}
+          >
+            <LinearGradient
+              colors={b.colors}
+              style={heroSt.bubbleAvatar}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <Text style={{ fontSize: 16 }}>{b.avatar}</Text>
+            </LinearGradient>
+            <Text style={heroSt.bubbleText}>{b.text}</Text>
+          </Animated.View>
+        );
+      })}
+    </View>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════
 // PAGE WRAPPER
 // ═════════════════════════════════════════════════════════════
@@ -633,6 +721,7 @@ function OnboardingPage({
   if (page.hero === "hook") hero = <HeroHook />;
   else if (page.hero === "proof") hero = <HeroProof />;
   else if (page.hero === "progress") hero = <HeroProgress />;
+  else if (page.hero === "community") hero = <HeroCommunity />;
   else hero = <HeroCTA />;
 
   const centerText = page.hero === "cta";
@@ -684,6 +773,7 @@ function OnboardingPage({
 // MAIN SCREEN
 // ═════════════════════════════════════════════════════════════
 export default function OnboardingScreen() {
+  const { t } = useT();
   const [currentPage, setCurrentPage] = useState(0);
   const scrollX = useRef(new Animated.Value(0)).current;
   const scrollRef = useRef<ScrollView>(null);
@@ -737,17 +827,7 @@ export default function OnboardingScreen() {
       <View style={[st.blob, st.blobSky]} />
 
       {/* Skip */}
-      <SafeAreaView style={st.skipWrap} pointerEvents="box-none">
-        {!isLast && (
-          <TouchableOpacity
-            onPress={() => finish("/(tabs)")}
-            activeOpacity={0.7}
-            style={st.skipBtn}
-          >
-            <Text style={st.skipText}>Skip</Text>
-          </TouchableOpacity>
-        )}
-      </SafeAreaView>
+      <SkipButton isLast={isLast} finish={finish} />
 
       {/* Pages */}
       <Animated.ScrollView
@@ -821,7 +901,7 @@ export default function OnboardingScreen() {
                 end={{ x: 1, y: 1 }}
                 style={st.btnMain}
               >
-                <Text style={st.btnMainText}>Continue</Text>
+                <Text style={st.btnMainText}>{t("onboarding.next")}</Text>
                 <Text style={st.btnArrow}>→</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -838,7 +918,7 @@ export default function OnboardingScreen() {
                   end={{ x: 1, y: 1 }}
                   style={st.btnMain}
                 >
-                  <Text style={st.btnMainText}>Start Free Scan</Text>
+                  <Text style={st.btnMainText}>{t("onboarding.getStarted")}</Text>
                   <Text style={st.btnArrow}>→</Text>
                 </LinearGradient>
               </TouchableOpacity>
@@ -854,6 +934,23 @@ export default function OnboardingScreen() {
         </View>
       </SafeAreaView>
     </View>
+  );
+}
+
+function SkipButton({ isLast, finish }: { isLast: boolean; finish: (target: string) => Promise<void> }) {
+  const { t } = useT();
+  return (
+    <SafeAreaView style={st.skipWrap} pointerEvents="box-none">
+      {!isLast && (
+        <TouchableOpacity
+          onPress={() => finish("/(tabs)")}
+          activeOpacity={0.7}
+          style={st.skipBtn}
+        >
+          <Text style={st.skipText}>{t("onboarding.skip")}</Text>
+        </TouchableOpacity>
+      )}
+    </SafeAreaView>
   );
 }
 
@@ -1298,5 +1395,92 @@ const heroSt = StyleSheet.create({
     fontSize: 10,
     color: C.inkMuted,
     fontWeight: "600",
+  },
+
+  // Community page
+  communityWrap: {
+    width: width - 64,
+    maxWidth: 340,
+    alignItems: "center",
+    gap: 10,
+  },
+  communityGlow: {
+    position: "absolute",
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "#e6d4ff",
+    top: -20,
+    opacity: 0.4,
+    alignSelf: "center",
+  },
+  avatarRing: {
+    width: 260,
+    height: 180,
+    position: "relative",
+    marginBottom: 6,
+  },
+  floatingAvatar: {
+    position: "absolute",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#b77cff",
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  centerHeart: {
+    position: "absolute",
+    left: 260 / 2 - 24,
+    top: 180 / 2 - 24,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.8)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#ff9fc2",
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  bubble: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.7)",
+    borderRadius: 16,
+    padding: 12,
+    paddingHorizontal: 14,
+    width: "100%",
+    shadowColor: "#b77cff",
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
+  },
+  bubbleAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bubbleText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: C.ink,
+    lineHeight: 18,
   },
 });

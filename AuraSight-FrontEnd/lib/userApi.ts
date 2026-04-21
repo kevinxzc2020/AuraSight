@@ -85,11 +85,22 @@ export async function changePassword(
 
 // ─── Health profile ────────────────────────────────────────
 
+export type SkinType = "oily" | "dry" | "combination" | "sensitive" | "normal";
+export type SkinConcern = "acne" | "dark_spots" | "wrinkles" | "redness" | "pores" | "dryness" | "oiliness";
+export type RoutineLevel = "none" | "simple" | "moderate" | "complex";
+export type Climate = "humid" | "dry" | "temperate" | "tropical" | "cold";
+
 export interface HealthProfile {
   height_cm?: number;
   weight_kg?: number;
   gender?: "male" | "female" | "other";
   birthday?: string; // yyyy-mm-dd
+  // ── Skin Profile fields ──
+  skin_type?: SkinType;
+  concerns?: SkinConcern[];
+  routine_level?: RoutineLevel;
+  allergies?: string;       // free-text known allergens
+  climate?: Climate;
 }
 
 export async function fetchHealthProfile(userId: string): Promise<HealthProfile> {

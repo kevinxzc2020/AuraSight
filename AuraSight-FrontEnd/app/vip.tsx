@@ -16,6 +16,7 @@ import { router } from "expo-router";
 import { ChevronLeft, Check, Sparkles, Crown, Star } from "lucide-react-native";
 import { Colors, Gradients, Spacing, Radius, FontSize } from "../constants/theme";
 import { useUser } from "../lib/userContext";
+import { useT } from "../lib/i18n";
 
 const { width } = Dimensions.get("window");
 
@@ -66,6 +67,7 @@ const PLANS = [
 ];
 
 export default function VIPScreen() {
+  const { t } = useT();
   const [selected, setSelected] = useState("annual");
   const selectedPlan = PLANS.find((p) => p.id === selected)!;
   const { user, setUser } = useUser();
@@ -83,7 +85,7 @@ export default function VIPScreen() {
         Alert.alert(
           "🎉 Welcome to VIP!",
           "Your account has been upgraded. Enjoy unlimited access.",
-          [{ text: "Let's go!", onPress: () => router.back() }],
+          [{ text: t("common.gotIt"), onPress: () => router.back() }],
         );
       } else if (result.error !== "cancelled") {
         Alert.alert("Purchase failed", result.error ?? "Please try again.");
@@ -101,7 +103,7 @@ export default function VIPScreen() {
         await AsyncStorage.setItem("@aurasight_user_mode", "vip");
         if (user) await setUser({ ...user, mode: "vip" });
         Alert.alert("✅ Restored", "Your VIP access has been restored.", [
-          { text: "Great!", onPress: () => router.back() },
+          { text: t("common.gotIt"), onPress: () => router.back() },
         ]);
       } else {
         Alert.alert("Nothing to restore", "No previous purchases found for this account.");
@@ -144,9 +146,9 @@ export default function VIPScreen() {
             </View>
           </View>
 
-          <Text style={styles.heroTitle}>AuraSight VIP</Text>
+          <Text style={styles.heroTitle}>{t("vip.title")}</Text>
           <Text style={styles.heroTagline}>
-            Your skin transformation,{"\n"}powered by real data.
+            {t("vip.subtitle")}
           </Text>
 
           {/* Trial pill */}
@@ -179,7 +181,7 @@ export default function VIPScreen() {
       >
 
         {/* ── Plan selector ── */}
-        <Text style={styles.sectionLabel}>CHOOSE YOUR PLAN</Text>
+        <Text style={styles.sectionLabel}>CHOOSE YOUR PLAN</Text> {/* TODO: Add i18n for section labels */}
 
         {PLANS.map((plan) => {
           const isSelected = selected === plan.id;
@@ -264,7 +266,7 @@ export default function VIPScreen() {
         })}
 
         {/* ── Features ── */}
-        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>EVERYTHING INCLUDED</Text>
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>EVERYTHING INCLUDED</Text> {/* TODO: Add i18n for section labels */}
 
         <View style={styles.featuresCard}>
           {FEATURES.map((f, i) => (
@@ -312,7 +314,7 @@ export default function VIPScreen() {
 
         {/* ── Legal ── */}
         <View style={styles.legalRow}>
-          <TouchableOpacity onPress={handleRestore}><Text style={styles.legalLink}>Restore purchase</Text></TouchableOpacity>
+          <TouchableOpacity onPress={handleRestore}><Text style={styles.legalLink}>{t("vip.restore")}</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
           <TouchableOpacity><Text style={styles.legalLink}>Terms</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>

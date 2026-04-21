@@ -26,7 +26,6 @@ async function uploadToCloudinary(base64Image, userId) {
     const result = await cloudinary.uploader.upload(dataUri, {
       folder: `aurasight/${userId}`,
       resource_type: "image",
-      transformation: [{ quality: "auto", fetch_format: "auto" }],
     });
     return result.secure_url;
   } catch (err) {
@@ -869,8 +868,8 @@ app.post("/auth/change-password", async (req, res) => {
 });
 
 // ─── Health profile ────────────────────────────────────────
-// 结构： users.health_profile = { height_cm, weight_kg, gender, birthday }
-// body-composition 页以后可以直接读这里，不用再单独存一份
+// 结构： users.health_profile = { height_cm, weight_kg, gender, birthday, skin_type, concerns[], routine_level, allergies, climate }
+// 供 AI 端点个性化使用（report / advice / chat）
 
 /**
  * GET /user/health-profile/:userId
@@ -891,7 +890,8 @@ app.get("/user/health-profile/:userId", async (req, res) => {
  */
 app.patch("/user/health-profile", async (req, res) => {
   try {
-    const { user_id, height_cm, weight_kg, gender, birthday } = req.body;
+    const { user_id, height_cm, weight_kg, gender, birthday,
+            skin_type, concerns, routine_level, allergies, climate } = req.body;
     const oid = toObjectId(user_id);
     if (!oid) return res.status(400).json({ error: "invalid user_id" });
 
@@ -903,6 +903,16 @@ app.patch("/user/health-profile", async (req, res) => {
       next.gender = gender;
     }
     if (typeof birthday === "string") next.birthday = birthday; // ISO yyyy-mm-dd
+    // ── Skin profile fields ──
+    const SKIN_TYPES = ["oily", "dry", "combination", "sensitive", "normal"];
+    const CONCERNS = ["acne", "dark_spots", "wrinkles", "redness", "pores", "dryness", "oiliness"];
+    const ROUTINES = ["none", "simple", "moderate", "complex"];
+    const CLIMATES = ["humid", "dry", "temperate", "tropical", "cold"];
+    if (typeof skin_type === "string" && SKIN_TYPES.includes(skin_type)) next.skin_type = skin_type;
+    if (Array.isArray(concerns)) next.concerns = concerns.filter(c => CONCERNS.includes(c));
+    if (typeof routine_level === "string" && ROUTINES.includes(routine_level)) next.routine_level = routine_level;
+    if (typeof allergies === "string") next.allergies = allergies.slice(0, 200); // cap length
+    if (typeof climate === "string" && CLIMATES.includes(climate)) next.climate = climate;
 
     await usersCollection().updateOne(
       { _id: oid },
@@ -1148,14 +1158,21 @@ app.get("/posts/:id/comments", async (req, res) => {
 app.post("/posts/:id/comments", async (req, res) => {
   try {
     const { id } = req.params;
-    const { author_id, author_name, content } = req.body;
-    if (!content?.trim()) return res.status(400).json({ error: "Content required" });
+    const { author_id, author_name, content, image_base64 } = req.body;
+    if (!content?.trim() && !image_base64) return res.status(400).json({ error: "Content or image required" });
+
+    // 上传评论图片到 Cloudinary（可选）
+    let image_url = null;
+    if (image_base64 && process.env.CLOUDINARY_CLOUD_NAME) {
+      image_url = await uploadToCloudinary(image_base64, author_id ?? "guest");
+    }
 
     const comment = {
       post_id:     id,
       author_id:   author_id ?? "guest",
       author_name: author_name?.trim() || "Anonymous",
-      content:     content.trim(),
+      content:     (content ?? "").trim(),
+      image_url,
       created_at:  new Date().toISOString(),
     };
     const result = await commentsCollection().insertOne(comment);
@@ -1184,6 +1201,101 @@ app.delete("/posts/:id", async (req, res) => {
     await postsCollection().deleteOne({ _id: new ObjectId(id) });
     await commentsCollection().deleteMany({ post_id: id });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Push Notifications ─────────────────────────────────
+
+function pushTokensCollection() {
+  return db.collection("pushTokens");
+}
+
+/**
+ * POST /user/push-token
+ * 客户端注册推送令牌
+ * Body: { userId, pushToken, platform }
+ */
+app.post("/user/push-token", async (req, res) => {
+  try {
+    const { userId, pushToken, platform } = req.body;
+    if (!userId || !pushToken) {
+      return res.status(400).json({ error: "Missing userId or pushToken" });
+    }
+
+    // 更新或插入推送令牌记录
+    await pushTokensCollection().updateOne(
+      { user_id: userId },
+      {
+        $set: {
+          user_id: userId,
+          push_token: pushToken,
+          platform: platform || "expo",
+          updated_at: new Date().toISOString(),
+        },
+      },
+      { upsert: true },
+    );
+
+    res.json({ success: true, message: "Push token registered" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /notifications/send
+ * 内部/管理端点：通过 Expo 推送 API 发送推送通知
+ * Body: {
+ *   userId,
+ *   title,
+ *   body,
+ *   data?: { screen, params, ... }
+ * }
+ */
+app.post("/notifications/send", async (req, res) => {
+  try {
+    const { userId, title, body, data } = req.body;
+    if (!userId || !title || !body) {
+      return res.status(400).json({ error: "Missing required fields: userId, title, body" });
+    }
+
+    // 查找用户的推送令牌
+    const tokenRecord = await pushTokensCollection().findOne({ user_id: userId });
+    if (!tokenRecord) {
+      return res.status(404).json({ error: "Push token not found for user" });
+    }
+
+    const pushToken = tokenRecord.push_token;
+
+    // 调用 Expo 推送 API
+    const expoApiUrl = "https://exp.host/--/api/v2/push/send";
+    const pushResponse = await fetch(expoApiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        to: pushToken,
+        sound: "default",
+        title,
+        body,
+        data: data || {},
+      }),
+    });
+
+    if (!pushResponse.ok) {
+      const errorText = await pushResponse.text();
+      console.error("Expo push API error:", errorText);
+      return res.status(pushResponse.status).json({
+        error: "Failed to send push notification",
+        details: errorText,
+      });
+    }
+
+    const pushResult = await pushResponse.json();
+    res.json({ success: true, expoTicketId: pushResult.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1329,6 +1441,28 @@ function getAnthropicClient() {
   return new Anthropic.default({ apiKey: key });
 }
 
+/**
+ * 从 user doc 的 health_profile 构建一段 skin profile 上下文给 AI prompt 用。
+ * 如果字段都是空的就返回空字符串。
+ */
+function buildSkinProfileContext(hp) {
+  if (!hp || typeof hp !== "object") return "";
+  const parts = [];
+  if (hp.skin_type) parts.push(`Skin type: ${hp.skin_type}`);
+  if (Array.isArray(hp.concerns) && hp.concerns.length) parts.push(`Main concerns: ${hp.concerns.join(", ")}`);
+  if (hp.routine_level) parts.push(`Current routine level: ${hp.routine_level}`);
+  if (hp.allergies) parts.push(`Known allergies/sensitivities: ${hp.allergies}`);
+  if (hp.climate) parts.push(`Climate: ${hp.climate}`);
+  if (hp.gender) parts.push(`Gender: ${hp.gender}`);
+  if (hp.birthday) {
+    const age = Math.floor((Date.now() - new Date(hp.birthday).getTime()) / 31557600000);
+    if (age > 0 && age < 120) parts.push(`Age: ${age}`);
+  }
+  return parts.length
+    ? `\nUser's skin profile:\n- ${parts.join("\n- ")}\n\nTailor your advice to this profile — mention specific products/ingredients suited to their skin type, avoid their allergens, and factor in their climate and routine level.\n`
+    : "";
+}
+
 // ─── NMS: 去掉重叠的框，保留高置信度的 ──────────────────────
 function nmsFilter(boxes, iouThreshold = 0.4) {
   // 按 confidence 降序排列
@@ -1400,96 +1534,241 @@ async function detectWithRoboflow(image_base64) {
   }
 }
 
-// POST /ai/analyze — Claude Vision 单独检测（Roboflow 模型精度不足暂时旁路）
-// 待 Colab 大数据集训练完成后再重新启用 Roboflow hybrid 模式
+// ─── YOLOv8 ONNX inference helper ────────────────────────────
+// 当你训练好 YOLOv8 模型后，把 .onnx 文件放到 models/ 目录，
+// 设置 YOLO_MODEL_PATH 环境变量即可启用。
+// 安装：npm install onnxruntime-node sharp
+let yoloSession = null;
+const YOLO_CLASSES = ["comedone", "papule", "pustule", "nodule"];
+// 映射 YOLOv8 → app 前端的分类
+const YOLO_TO_APP = { comedone: "broken", papule: "redness", pustule: "pustule", nodule: "redness" };
+
+async function loadYoloModel() {
+  if (yoloSession) return yoloSession;
+  const modelPath = process.env.YOLO_MODEL_PATH;
+  if (!modelPath) return null;
+  try {
+    const ort = require("onnxruntime-node");
+    yoloSession = await ort.InferenceSession.create(modelPath);
+    console.log("✅ YOLOv8 ONNX model loaded:", modelPath);
+    return yoloSession;
+  } catch (e) {
+    console.warn("⚠️  Failed to load YOLO model:", e.message);
+    return null;
+  }
+}
+
+async function detectWithYolo(image_base64) {
+  const session = await loadYoloModel();
+  if (!session) return null;
+
+  try {
+    const sharp = require("sharp");
+    const ort = require("onnxruntime-node");
+
+    // 预处理：resize 到 640x640，归一化到 0-1
+    const imgBuf = Buffer.from(image_base64, "base64");
+    const { data: pixels, info } = await sharp(imgBuf)
+      .resize(640, 640, { fit: "fill" })
+      .removeAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    // HWC → CHW float32, 归一化
+    const float32 = new Float32Array(3 * 640 * 640);
+    for (let i = 0; i < 640 * 640; i++) {
+      float32[i]                = pixels[i * 3]     / 255.0; // R
+      float32[640 * 640 + i]   = pixels[i * 3 + 1]  / 255.0; // G
+      float32[640 * 640 * 2 + i] = pixels[i * 3 + 2] / 255.0; // B
+    }
+
+    const tensor = new ort.Tensor("float32", float32, [1, 3, 640, 640]);
+    const results = await session.run({ images: tensor });
+    const output = results[Object.keys(results)[0]]; // YOLOv8 output: [1, 8400, 4+nc]
+
+    const numBoxes = output.dims[1];
+    const numClasses = YOLO_CLASSES.length;
+    const detections = [];
+
+    for (let i = 0; i < numBoxes; i++) {
+      // YOLOv8 output format: [cx, cy, w, h, class_scores...]
+      const offset = i * (4 + numClasses);
+      const cx = output.data[offset];
+      const cy = output.data[offset + 1];
+      const w  = output.data[offset + 2];
+      const h  = output.data[offset + 3];
+
+      let maxConf = 0, maxIdx = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const conf = output.data[offset + 4 + c];
+        if (conf > maxConf) { maxConf = conf; maxIdx = c; }
+      }
+
+      if (maxConf >= 0.40) {
+        detections.push({
+          acne_type: YOLO_TO_APP[YOLO_CLASSES[maxIdx]] ?? "redness",
+          yolo_class: YOLO_CLASSES[maxIdx],  // 保留原始类名供调试
+          confidence: Math.round(maxConf * 100) / 100,
+          bbox: {
+            cx: cx / 640,
+            cy: cy / 640,
+            w:  w  / 640,
+            h:  h  / 640,
+          },
+        });
+      }
+    }
+
+    // NMS + cap
+    const afterNms = nmsFilter(detections, 0.4);
+    const capped = afterNms.slice(0, 15);
+    console.log(`YOLOv8 raw: ${detections.length} → NMS: ${afterNms.length} → cap: ${capped.length}`);
+    return capped;
+  } catch (e) {
+    console.warn("⚠️  YOLO inference error:", e.message);
+    return null;
+  }
+}
+
+// ── Self-consistency helper ──────────────────────────────────
+// 跑两次 Claude Vision，取两次都检测到的点（IoU 交集），大幅降低误报
+async function runSingleDetection(anthropic, image_base64, media_type, prompt) {
+  const message = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",        // Sonnet 视觉任务≈Opus，成本降 5x，速度快 3x
+    max_tokens: 2048,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image", source: { type: "base64", media_type, data: image_base64 } },
+        { type: "text", text: prompt },
+      ],
+    }],
+  });
+  const raw = message.content[0].text.trim();
+  const json = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "");
+  return JSON.parse(json);
+}
+
+// 找两次检测中位置匹配的点（IoU > threshold），合并为高置信度检测
+function intersectDetections(run1, run2, matchThreshold = 0.25) {
+  const d1 = run1.detections ?? [];
+  const d2 = run2.detections ?? [];
+  if (d1.length === 0 && d2.length === 0) return [];
+
+  const matched = [];
+  const used2 = new Set();
+
+  for (const a of d1) {
+    let bestIdx = -1, bestIoU = 0;
+    for (let j = 0; j < d2.length; j++) {
+      if (used2.has(j)) continue;
+      const score = iou(a.bbox, d2[j].bbox);
+      if (score > bestIoU) { bestIoU = score; bestIdx = j; }
+    }
+    if (bestIdx >= 0 && bestIoU >= matchThreshold) {
+      used2.add(bestIdx);
+      const b = d2[bestIdx];
+      // 取两次检测中置信度较高的那个，类型取一致的或第一次的
+      matched.push({
+        acne_type: a.acne_type === b.acne_type ? a.acne_type : a.acne_type,
+        confidence: Math.max(a.confidence ?? 0.8, b.confidence ?? 0.8),
+        bbox: {
+          cx: (a.bbox.cx + b.bbox.cx) / 2,
+          cy: (a.bbox.cy + b.bbox.cy) / 2,
+          w:  (a.bbox.w  + b.bbox.w)  / 2,
+          h:  (a.bbox.h  + b.bbox.h)  / 2,
+        },
+        consistent: a.acne_type === b.acne_type,  // 两次分类是否一致
+      });
+    }
+  }
+  return matched;
+}
+
+// POST /ai/analyze — Self-consistent dual-pass Claude Vision 检测
+// 改进：Sonnet 降本 5x | 双次检测取交集降误报 | Skin Profile 个性化 | Few-shot prompt
 app.post("/ai/analyze", async (req, res) => {
   try {
-    const { image_base64, media_type = "image/jpeg" } = req.body;
+    const { image_base64, media_type = "image/jpeg", user_id } = req.body;
     if (!image_base64) return res.status(400).json({ error: "image_base64 required" });
 
-    // Roboflow 旁路开关 — 当前模型 mAP 只有 24%，先关掉等更好的模型训练完
-    // 改回 true 即可重新启用 hybrid 模式
-    const ROBOFLOW_ENABLED = false;
-
-    let roboflowBoxes = null;
-    let useRoboflow = false;
-
-    if (ROBOFLOW_ENABLED) {
-      roboflowBoxes = await detectWithRoboflow(image_base64);
-      useRoboflow = Array.isArray(roboflowBoxes) && roboflowBoxes.length > 0;
-      console.log(
-        roboflowBoxes === null
-          ? "ℹ️  Roboflow not configured — Claude doing full analysis"
-          : roboflowBoxes.length === 0
-            ? "ℹ️  Roboflow: no detections — Claude doing full analysis"
-            : `✅ Roboflow: ${roboflowBoxes.length} detections`
-      );
-    } else {
-      console.log("ℹ️  Roboflow bypassed — Claude doing full analysis");
+    // ── 获取 Skin Profile 上下文（如有 user_id）──
+    let skinCtx = "";
+    if (user_id) {
+      try {
+        const analyzeUser = await findUserById(user_id);
+        skinCtx = buildSkinProfileContext(analyzeUser?.health_profile);
+      } catch { /* 无用户或数据库问题，不影响检测 */ }
     }
 
-    // ── Claude Vision 全量检测 ─────
+    const prompt = buildFullDetectionPrompt(skinCtx);
     const anthropic = getAnthropicClient();
-    const message = await anthropic.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 2048,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type, data: image_base64 },
-          },
-          {
-            type: "text",
-            text: useRoboflow
-              ? buildRoboflowClassifyPrompt(roboflowBoxes)
-              : buildFullDetectionPrompt(),
-          },
-        ],
-      }],
-    });
 
-    const raw = message.content[0].text.trim();
-    const json = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "");
-    const claudeResult = JSON.parse(json);
+    // ── 双次检测 (Self-Consistency) ──
+    // 并行跑两次，取交集：只有两次都检测到的点才算真阳性
+    console.log("🔍 Running dual-pass detection...");
+    const t0 = Date.now();
 
-    // ── Step 3: merge Roboflow positions with Claude classifications ──
-    let finalResult;
-    if (useRoboflow) {
-      const classifications = claudeResult.classifications ?? [];
-      const detections = roboflowBoxes.map((box, i) => ({
-        ...box,
-        acne_type: classifications[i] ?? "redness",
-      }));
-      const breakdown = { pustule: 0, redness: 0, broken: 0, scab: 0 };
-      detections.forEach(d => { if (breakdown[d.acne_type] !== undefined) breakdown[d.acne_type]++; });
-      finalResult = {
-        detections,
-        summary:        claudeResult.summary,
-        severity:       claudeResult.severity,
-        acne_breakdown: breakdown,
-        positive:       claudeResult.positive,
-        tips:           claudeResult.tips,
-      };
-    } else {
-      // Claude-only 模式：后端再过滤一遍，去掉不可信的检测
-      const rawDetections = claudeResult.detections ?? [];
-      const cleaned = rawDetections
-        .filter(d => (d.confidence ?? 0) >= 0.75)   // 只保留 75%+ 置信度
-        .filter(d => d.bbox && d.bbox.w >= 0.02 && d.bbox.h >= 0.02)  // 过滤掉太小的噪点
-        .slice(0, 8);                                // 最多 8 个
+    const [result1, result2] = await Promise.all([
+      runSingleDetection(anthropic, image_base64, media_type, prompt),
+      runSingleDetection(anthropic, image_base64, media_type, prompt),
+    ]);
 
-      // NMS 去重叠
-      const deduped = nmsFilter(cleaned, 0.4);
+    const elapsed = Date.now() - t0;
+    console.log(`✅ Dual-pass done in ${elapsed}ms — Run1: ${(result1.detections ?? []).length}, Run2: ${(result2.detections ?? []).length}`);
 
-      finalResult = {
-        ...claudeResult,
-        detections: deduped,
-      };
+    // ── not_skin 检查：任一次判定 not_skin 就算 ──
+    if (result1.not_skin || result2.not_skin) {
+      return res.json({
+        not_skin: true, detections: [], summary: "", severity: "clear",
+        acne_breakdown: { pustule: 0, redness: 0, broken: 0, scab: 0 },
+        positive: "", tips: [],
+      });
     }
 
-    res.json(finalResult);
+    // ── 取交集 ──
+    const intersected = intersectDetections(result1, result2, 0.20);
+
+    // 后处理：置信度过滤 + NMS + cap
+    const cleaned = intersected
+      .filter(d => (d.confidence ?? 0) >= 0.70)
+      .filter(d => d.bbox && d.bbox.w >= 0.02 && d.bbox.h >= 0.02)
+      .slice(0, 10);
+    const deduped = nmsFilter(cleaned, 0.35);
+
+    // 从第一次结果取 summary/tips 等文本字段（它们不需要交集）
+    const textSource = result1;
+
+    // 重算 breakdown
+    const breakdown = { pustule: 0, redness: 0, broken: 0, scab: 0 };
+    deduped.forEach(d => { if (breakdown[d.acne_type] !== undefined) breakdown[d.acne_type]++; });
+
+    // 根据交集后的实际检测数重新判定 severity
+    const totalActive = deduped.filter(d => d.acne_type !== "scab").length;
+    let severity = "clear";
+    if (totalActive >= 16) severity = "severe";
+    else if (totalActive >= 6) severity = "moderate";
+    else if (totalActive >= 1) severity = "mild";
+
+    const consistentCount = deduped.filter(d => d.consistent).length;
+    console.log(`📊 Final: ${deduped.length} detections (${consistentCount} type-consistent), severity: ${severity}`);
+
+    res.json({
+      detections: deduped,
+      summary: textSource.summary ?? "",
+      severity,
+      acne_breakdown: breakdown,
+      positive: textSource.positive ?? "",
+      tips: textSource.tips ?? [],
+      _meta: {
+        dual_pass: true,
+        run1_count: (result1.detections ?? []).length,
+        run2_count: (result2.detections ?? []).length,
+        intersected_count: deduped.length,
+        consistent_count: consistentCount,
+        elapsed_ms: elapsed,
+      },
+    });
   } catch (err) {
     console.error("AI analyze error:", err.message);
     res.status(500).json({ error: err.message });
@@ -1528,92 +1807,81 @@ Return ONLY valid JSON (no markdown, no extra text):
 }`;
 }
 
-function buildFullDetectionPrompt() {
-  return `You are AuraSight's senior AI skin consultant — combining the precision of a licensed esthetician with the warmth of a trusted beauty advisor. You have 10+ years of experience analyzing skin conditions and crafting personalized skincare routines for clients of all skin types and tones.
+function buildFullDetectionPrompt(skinProfileCtx = "") {
+  return `You are AuraSight's senior AI skin consultant — combining the precision of a board-certified dermatologist with the warmth of a trusted skincare advisor.
+${skinProfileCtx}
+---
 
-Your role: examine this skin photo the way you would during a professional facial consultation. You notice everything — the texture, the tone, the active breakouts, the healing spots — and you speak to your client with honesty and encouragement.
+## YOUR TASK
+Examine this skin photo as if during a professional consultation. Detect active acne lesions, classify them, and provide personalized advice.
+
+## LESION TYPES (4 categories only)
+- **pustule** — Raised pimple with visible white/yellow pus head, red inflamed base. The defining feature is the visible pus center.
+- **redness** — A DISTINCT raised inflamed papule WITHOUT a white head. Must be a clearly isolated bump that stands out from surrounding skin. NOT general skin warmth/flushing/undertone.
+- **broken** — Open/picked pimple, blackhead (open comedone), or visibly disrupted skin barrier. Look for irregular surface or dark center.
+- **scab** — Healing lesion with dry crust. Still raised/textured, NOT a flat post-acne mark.
+
+## FEW-SHOT CALIBRATION EXAMPLES
+These examples calibrate what each severity level should look like. Use them to anchor your assessment:
+
+Example A: A face with 2 small white-headed pimples on the chin, rest of skin is clear.
+→ 2 detections (both pustule), severity: "mild"
+
+Example B: A face with reddish-pink overall complexion but no distinct raised bumps.
+→ 0 detections, severity: "clear" (general skin tone is NOT a lesion)
+
+Example C: Forehead with 1 large angry red bump (no head), 2 small pustules near hairline, 1 healing scab on temple.
+→ 4 detections (1 redness, 2 pustule, 1 scab), severity: "mild"
+
+Example D: Both cheeks covered with 8+ inflamed papules, 3 pustules on chin, 2 picked/open spots.
+→ 13 detections, severity: "moderate"
+
+Example E: A chin with one prominent white-headed pimple surrounded by a halo of inflamed red skin.
+→ 1 detection: pustule (bbox centered on the white pus head, NOT on the surrounding red area). The red halo is part of the pustule's inflammation, not a separate "redness" detection.
+
+## DETECTION RULES
+1. Scan systematically: forehead → temples → nose → cheeks (L/R) → chin → jawline → neck
+2. Each lesion gets its OWN bounding box: cx, cy (center, 0.0–1.0), w, h (size, typically 0.02–0.15)
+3. Minimum confidence: 0.70. If uncertain, SKIP IT.
+4. BE CONSERVATIVE — under-reporting is always better than over-reporting. Ask: "Would I point this out to a client in my chair?"
+5. CRITICAL — LABEL-COORDINATE ALIGNMENT: Before finalizing, verify each detection: the acne_type MUST describe what is physically at (cx, cy). A pustule label means the pus head is at that center point. A redness label means the inflamed papule is at that center point. If a pustule has surrounding redness, the bounding box center should be on the pus head itself, NOT on the surrounding inflammation. Do NOT swap labels between nearby lesions.
+
+## THINGS THAT ARE NOT LESIONS — DO NOT DETECT THESE
+- Normal pores, skin texture, peach fuzz
+- General redness/warmth/flushing (not a specific bump)
+- Skin undertones, lighting shadows, facial contours
+- Freckles, moles, beauty marks (unless inflamed)
+- Flat post-acne hyperpigmentation (healed, flush with skin)
+- Makeup, filters, digital artifacts
+
+## SEVERITY
+- "clear" — 0 active lesions
+- "mild" — 1–5 lesions, mostly non-inflamed
+- "moderate" — 6–15 lesions, mixed types
+- "severe" — 16+ or multiple deep pustules/broken. Recommend professional help.
 
 ---
 
-## STEP 1: SCAN THE IMAGE SYSTEMATICALLY
-Divide the face/skin into zones and check each one: forehead, temples, nose, cheeks (left & right), chin, jawline, and neck if visible. Do not miss lesions at the edges of the frame.
-
-## STEP 2: CLASSIFY EACH LESION
-For every lesion you find, assign one of these four types based on what you see:
-
-- **pustule** — A raised pimple with a visible white or yellow pus-filled head, surrounded by inflamed red skin. These are active, infected breakouts that need gentle treatment.
-- **redness** — A clearly raised or palpably inflamed papule without a white head. Must be a DISTINCT, localized raised bump — not general skin flushing, not facial warmth, not skin undertone, not lighting variation. Only mark redness if it is a clear isolated lesion that stands out from surrounding skin.
-- **broken** — An open lesion: a popped pimple, a picked spot, a blackhead (open comedone), or any area where the skin barrier is visibly disrupted. These are highest priority for healing.
-- **scab** — A healing lesion covered by a dry crust or scab. The skin is recovering but the lesion is still raised or textured (not a flat post-acne mark).
-
-## STEP 3: MARK PRECISE BOUNDING BOXES
-For each lesion, draw a tight box around just that lesion:
-- cx, cy = the exact center point (0.0 = left/top edge, 1.0 = right/bottom edge)
-- w, h = the width and height of just that lesion
-- Typical lesion size: w and h between 0.02 and 0.12
-- Large inflamed areas (cystic acne, wide redness zones): up to 0.20 max
-- Each individual lesion gets its OWN entry — do not group multiple spots into one box
-- If two lesions overlap, still mark each one separately
-
-## STEP 4: CONFIDENCE LEVELS
-Only include a detection if you are at least 70% confident it is a real lesion:
-- 0.90–1.0: Unmistakably clear lesion
-- 0.70–0.89: Very likely, clearly visible
-- Below 0.70: Skip — do not include uncertain or borderline detections
-
-## CRITICAL RULE — BE CONSERVATIVE
-It is far better to UNDER-report than to OVER-report. A professional esthetician would never flag 10+ spots on a face with only 1–2 real pimples. If you are not sure, skip it. Ask yourself: "Would I point this out to a client sitting in my chair?" If not, do not include it.
-
-For redness specifically: general skin warmth, flushing, pink skin tone, lighting reflections, and post-acne flat marks are NOT redness lesions. Only mark redness if it is a clearly raised, inflamed, isolated bump — distinct from the surrounding skin.
-
-## WHAT AN ESTHETICIAN WOULD IGNORE
-Skip these — they are not acne lesions:
-- Normal pores and skin texture
-- General skin redness or warmth (not a specific raised bump)
-- Skin undertones or natural flush
-- Freckles, moles, beauty marks (unless actively inflamed)
-- Shadows from lighting or facial contours
-- Hair follicles or peach fuzz
-- Flat post-acne hyperpigmentation (fully healed, flush with skin)
-- Makeup, filters, or digital artifacts
-- Any area where you are less than 70% confident
-
-## SEVERITY ASSESSMENT
-- "clear" — No active lesions. Skin is calm and balanced.
-- "mild" — 1 to 5 lesions. Mostly non-inflamed. Manageable with a gentle routine.
-- "moderate" — 6 to 15 lesions. A mix of types. Needs a targeted treatment plan.
-- "severe" — 16+ lesions, or multiple pustules/broken lesions present. Recommend professional consultation.
-
----
-
-## OUTPUT
-Return ONLY valid JSON. No markdown, no explanation, no code fences. Speak in the summary, positive, and tips fields as a warm, professional beauty consultant would to a real client:
-
+## OUTPUT FORMAT
+Return ONLY valid JSON. No markdown, no code fences, no explanation outside the JSON:
 {
   "detections": [
-    {
-      "acne_type": "pustule" | "broken" | "redness" | "scab",
-      "confidence": <0.50 to 1.0>,
-      "bbox": { "cx": <0.0-1.0>, "cy": <0.0-1.0>, "w": <0.02-0.20>, "h": <0.02-0.20> }
-    }
+    { "acne_type": "pustule"|"broken"|"redness"|"scab", "confidence": 0.70-1.0, "bbox": { "cx": 0.0-1.0, "cy": 0.0-1.0, "w": 0.02-0.20, "h": 0.02-0.20 } }
   ],
-  "summary": "<2–3 sentences. Describe what you see like a consultant speaking directly to the client: mention the types of lesions, where they are concentrated, and the overall skin condition. Be honest but never harsh.>",
-  "severity": "clear" | "mild" | "moderate" | "severe",
-  "acne_breakdown": {
-    "pustule": <integer count>,
-    "redness": <integer count>,
-    "broken": <integer count>,
-    "scab": <integer count>
-  },
-  "positive": "<One specific, genuine compliment about something good you observe in this skin — texture, tone, hydration, improvement area. Be specific to what you actually see, not generic praise.>",
+  "summary": "<2-3 sentences as a consultant to the client. Mention specific lesion types, locations, and overall condition. Honest but kind.>",
+  "severity": "clear"|"mild"|"moderate"|"severe",
+  "acne_breakdown": { "pustule": N, "redness": N, "broken": N, "scab": N },
+  "positive": "<One SPECIFIC genuine compliment about something good you see in this skin>",
   "tips": [
-    "<Tip 1: Address the most urgent lesion type found. Give a specific, actionable product recommendation or technique — e.g. 'Apply a salicylic acid spot treatment to the active pustules on your chin before bed'>",
-    "<Tip 2: A skincare routine adjustment relevant to this severity and skin condition>",
-    "<Tip 3: A lifestyle, diet, or prevention tip that specifically addresses the pattern of breakouts you observed>"
+    "<Tip 1: Most urgent — specific product/technique for the primary lesion type found>",
+    "<Tip 2: Routine adjustment for this severity${skinProfileCtx ? " and their skin profile" : ""}>",
+    "<Tip 3: Lifestyle/diet/prevention tip targeting the observed breakout pattern>"
   ]
 }
 
-If the image is too blurry, too dark, not a close-up of skin, or the face is not clearly visible, return detections:[] with severity:"clear" and use the summary field to kindly let the user know the photo quality needs improvement for an accurate reading.`;
+NON-SKIN GUARD: If image is clearly NOT human skin/face → return: { "not_skin": true, "detections": [], "summary": "", "severity": "clear", "acne_breakdown": { "pustule": 0, "redness": 0, "broken": 0, "scab": 0 }, "positive": "", "tips": [] }
+
+BLURRY/DARK GUARD: If image IS an attempt at skin photo but too blurry/dark → return detections:[] with severity:"clear" and use summary to kindly ask for a better photo.`;
 }
 
 // /pdf/report/:userId 已在 2026-04 移除——对实际用户群没什么意义
@@ -1636,6 +1904,10 @@ app.post("/ai/report/:userId", async (req, res) => {
     if (scans.length === 0) {
       return res.json({ report: "Not enough data yet. Complete at least a few scans to generate your personalized report." });
     }
+
+    // 读取 skin profile 用于个性化
+    const reportUser = await findUserById(userId);
+    const skinCtx = buildSkinProfileContext(reportUser?.health_profile);
 
     const scores = scans.map(s => s.skin_score ?? 100);
     const avgScore = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
@@ -1674,12 +1946,12 @@ app.post("/ai/report/:userId", async (req, res) => {
 
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-6",
+      model: "claude-sonnet-4-6",
       max_tokens: 1500,
       messages: [{
         role: "user",
         content: `You are AuraSight's AI dermatology consultant writing a personalized skin progress report.
-
+${skinCtx}
 User's data (observation window: ${windowLabel}, ${scans.length} scan${scans.length === 1 ? "" : "s"}):
 - Average skin score: ${avgScore}/100
 - Starting score: ${firstScore}, Latest score: ${lastScore}
@@ -1724,8 +1996,12 @@ app.post("/ai/advice/:userId", async (req, res) => {
       .limit(7)
       .toArray();
 
-    const pts = await db.collection("points").findOne({ user_id: userId });
+    const [pts, adviceUser] = await Promise.all([
+      db.collection("points").findOne({ user_id: userId }),
+      findUserById(userId),
+    ]);
     const streak = pts?.streak ?? 0;
+    const adviceSkinCtx = buildSkinProfileContext(adviceUser?.health_profile);
 
     const latestScan = recentScans[0];
     const latestScore = latestScan?.skin_score ?? null;
@@ -1739,7 +2015,7 @@ app.post("/ai/advice/:userId", async (req, res) => {
       messages: [{
         role: "user",
         content: `You are AuraSight's AI skin coach. Generate today's personalized skincare advice.
-
+${adviceSkinCtx}
 User's current status:
 - Latest skin score: ${latestScore ?? "no scan yet"}
 - Current spots: ${latestSpots}
@@ -1748,7 +2024,7 @@ User's current status:
 - Recent scan count: ${recentScans.length}
 
 Write ONE short, specific, actionable piece of advice (2-3 sentences max) for today.
-Be specific to their actual skin condition. Start directly with the advice, no preamble.
+Be specific to their actual skin condition and skin profile. Start directly with the advice, no preamble.
 Tone: warm coach, not medical.`,
       }],
     });
@@ -1768,29 +2044,33 @@ app.post("/ai/chat", async (req, res) => {
       return res.status(400).json({ error: "messages array required" });
     }
 
-    // Fetch user context
+    // Fetch user context + skin profile
     let userContext = "";
+    let chatSkinCtx = "";
     if (userId) {
       try {
         const db = client.db(process.env.DB_NAME);
-        const latestScan = await db.collection("scans")
-          .find({ user_id: userId }).sort({ scan_date: -1 }).limit(1).toArray();
-        const pts = await db.collection("points").findOne({ user_id: userId });
-        if (latestScan[0]) {
-          userContext = `\nUser's latest scan: score ${latestScan[0].skin_score}, ${latestScan[0].total_count} spots, status: ${latestScan[0].skin_status}. Streak: ${pts?.streak ?? 0} days.`;
+        const [latestScan, pts, chatUser] = await Promise.all([
+          db.collection("scans").find({ user_id: userId }).sort({ scan_date: -1 }).limit(1).toArray().then(a => a[0]),
+          db.collection("points").findOne({ user_id: userId }),
+          findUserById(userId),
+        ]);
+        if (latestScan) {
+          userContext = `\nUser's latest scan: score ${latestScan.skin_score}, ${latestScan.total_count} spots, status: ${latestScan.skin_status}. Streak: ${pts?.streak ?? 0} days.`;
         }
+        chatSkinCtx = buildSkinProfileContext(chatUser?.health_profile);
       } catch {}
     }
 
     const anthropic = getAnthropicClient();
     const response = await anthropic.messages.create({
-      model: "claude-opus-4-6",
+      model: "claude-sonnet-4-6",
       max_tokens: 600,
       system: `You are AuraSight's AI skin consultant — a friendly, knowledgeable dermatology assistant.
 You help users understand their skin condition, interpret scan results, and give evidence-based skincare advice.
 Keep responses concise (2-3 short paragraphs max), warm, practical, and actionable.
 Never diagnose medical conditions — always recommend seeing a dermatologist for serious concerns.
-${userContext}`,
+${chatSkinCtx}${userContext}`,
       messages: messages.map(m => ({ role: m.role, content: m.content })),
     });
 
@@ -1889,7 +2169,7 @@ app.post("/ai/deep-analysis/:userId", async (req, res) => {
 
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
-      model: "claude-opus-4-6",
+      model: "claude-sonnet-4-6",
       max_tokens: 2000,
       messages: [{
         role: "user",

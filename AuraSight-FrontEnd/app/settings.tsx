@@ -61,13 +61,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 
 const APP_VERSION = "1.0.0";
 
-const SKIN_GOALS = [
-  { id: "acne", labelKey: "goal.acne", emoji: "🎯" },
-  { id: "tone", labelKey: "goal.tone", emoji: "✨" },
-  { id: "texture", labelKey: "goal.texture", emoji: "🌿" },
-  { id: "body", labelKey: "goal.body", emoji: "🧍" },
-  { id: "aging", labelKey: "goal.aging", emoji: "💫" },
-];
+// SKIN_GOALS 已合并到 Profile → Skin Profile（concerns 字段），不再在 settings 中维护
 
 // ─── 设置行组件 ───────────────────────────────────────────
 function Row({
@@ -135,7 +129,7 @@ export default function SettingsScreen() {
   const [reminderMinute, setReminderMinute] = useState(0);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [faceIdOn, setFaceIdOn] = useState(false);
-  const [skinGoals, setSkinGoals] = useState<string[]>(["acne"]);
+  // skinGoals 已迁移到 Profile → Skin Profile
   const [dataConsentOn, setDataConsentOn] = useState(false);
   const [consentAcceptedAt, setConsentAcceptedAt] = useState<string | null>(null);
   const [showLangSheet, setShowLangSheet] = useState(false);
@@ -149,14 +143,12 @@ export default function SettingsScreen() {
     const email = (await AsyncStorage.getItem("@aurasight_user_email")) ?? "";
     const mode =
       (await AsyncStorage.getItem("@aurasight_user_mode")) ?? "guest";
-    const goals = await AsyncStorage.getItem("@aurasight_skin_goals");
     const reminder = await AsyncStorage.getItem("@aurasight_reminder_on");
     const faceId = await AsyncStorage.getItem("@aurasight_faceid_on");
     const { hour, minute } = await getReminderTime();
     setUserName(name);
     setUserEmail(email);
     setUserMode(mode as any);
-    if (goals) setSkinGoals(JSON.parse(goals));
     setReminderOn(reminder === "true");
     setReminderHour(hour);
     setReminderMinute(minute);
@@ -276,14 +268,6 @@ export default function SettingsScreen() {
     setShowLangSheet(false);
   }
 
-  async function toggleGoal(id: string) {
-    const next = skinGoals.includes(id)
-      ? skinGoals.filter((g) => g !== id)
-      : [...skinGoals, id];
-    setSkinGoals(next);
-    await AsyncStorage.setItem("@aurasight_skin_goals", JSON.stringify(next));
-  }
-
   // Dark mode helper for card overrides
   const dkCard = { backgroundColor: C.cardBg, borderColor: C.gray200 } as const;
 
@@ -353,36 +337,7 @@ export default function SettingsScreen() {
         contentContainerStyle={st.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── 皮肤目标 ── */}
-        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.skinGoals")}</Text>
-        <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-          <Text style={[st.cardNote, isDark && { color: C.gray400 }]}>
-            {t("settings.skinGoals.note")}
-          </Text>
-          <View style={st.goalGrid}>
-            {SKIN_GOALS.map((g) => {
-              const on = skinGoals.includes(g.id);
-              return (
-                <TouchableOpacity
-                  key={g.id}
-                  onPress={() => toggleGoal(g.id)}
-                  activeOpacity={0.7}
-                  style={[st.goalChip, on && st.goalChipOn, isDark && { backgroundColor: C.gray200, borderColor: C.gray300 }, on && isDark && { backgroundColor: "#2a1520", borderColor: Colors.rose300 }]}
-                >
-                  {on && (
-                    <View style={st.goalCheck}>
-                      <Check size={9} color="#fff" />
-                    </View>
-                  )}
-                  <Text style={st.goalEmoji}>{g.emoji}</Text>
-                  <Text style={[st.goalLabel, on && st.goalLabelOn, isDark && !on && { color: C.gray500 }]}>
-                    {t(g.labelKey)}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
+        {/* ── skin goals 已合并到 Profile → Skin Profile ── */}
 
         {/* ── 通知 ── */}
         <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.notifications")}</Text>
@@ -491,7 +446,7 @@ export default function SettingsScreen() {
             iconBg={isDark ? C.gray200 : "#fff7ed"}
             iconEl={<Globe size={15} color="#f97316" />}
             label={t("settings.language")}
-            value={lang === "zh" ? "中文" : "English"}
+            value={lang === "zh" ? "中文" : lang === "es" ? "Español" : "English"}
             onPress={() => { setShowLangSheet(p => !p); setShowThemeSheet(false); }}
             isFirst
           />
@@ -508,26 +463,26 @@ export default function SettingsScreen() {
         {/* 语言选择器 — 简易 inline sheet */}
         {showLangSheet && (
           <View style={[st.card, S.card, isDark && dkCard, { marginTop: -8 }]}>
-            {(["en", "zh"] as const).map((l, i) => (
+            {(["en", "zh", "es"] as const).map((l, i, arr) => (
               <React.Fragment key={l}>
                 <TouchableOpacity
                   onPress={() => handlePickLang(l)}
-                  style={[st.row, i === 0 && st.rowFirst, i === 1 && st.rowLast]}
+                  style={[st.row, i === 0 && st.rowFirst, i === arr.length - 1 && st.rowLast]}
                   activeOpacity={0.7}
                 >
                   <View style={[st.rowIcon, { backgroundColor: isDark ? C.gray200 : "#fff7ed" }]}>
                     <Text style={{ fontSize: 14 }}>
-                      {l === "en" ? "🇺🇸" : "🇨🇳"}
+                      {l === "en" ? "🇺🇸" : l === "zh" ? "🇨🇳" : "🇪🇸"}
                     </Text>
                   </View>
                   <View style={st.rowMid}>
                     <Text style={[st.rowLabel, isDark && { color: C.gray900 }]}>
-                      {l === "en" ? "English" : "中文"}
+                      {l === "en" ? "English" : l === "zh" ? "中文" : "Español"}
                     </Text>
                   </View>
                   {lang === l && <Check size={16} color={Colors.rose400} />}
                 </TouchableOpacity>
-                {i === 0 && <View style={[st.separator, isDark && { backgroundColor: C.gray200 }]} />}
+                {i < arr.length - 1 && <View style={[st.separator, isDark && { backgroundColor: C.gray200 }]} />}
               </React.Fragment>
             ))}
           </View>

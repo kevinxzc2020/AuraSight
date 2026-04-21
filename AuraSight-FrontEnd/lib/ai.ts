@@ -19,6 +19,8 @@ export interface AnalyzeResult {
   severity: "clear" | "mild" | "moderate" | "severe";
   positive: string;
   tips: string[];
+  /** AI 判定图片不是皮肤/人脸照片时为 true */
+  not_skin?: boolean;
 }
 
 export interface AIReportResult {
@@ -35,7 +37,8 @@ export interface ChatMessage {
 // ─── Analyze skin image with Claude Vision ────────────────────
 export async function analyzeImage(
   imageBase64: string,
-  mediaType: string = "image/jpeg"
+  mediaType: string = "image/jpeg",
+  userId?: string
 ): Promise<AnalyzeResult> {
   const res = await fetch(`${API_URL}/ai/analyze`, {
     method: "POST",
@@ -46,6 +49,7 @@ export async function analyzeImage(
       image_base64: imageBase64,
       media_type: mediaType,
       consent_version: CONSENT_VERSION,
+      ...(userId ? { user_id: userId } : {}),
     }),
   });
   if (!res.ok) {

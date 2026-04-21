@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from "react";
+import { AdBanner } from "../../lib/ads";
 import {
   View,
   Text,
@@ -7,8 +8,8 @@ import {
   StyleSheet,
   Dimensions,
   Image,
-  ActivityIndicator,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -16,6 +17,8 @@ import Svg, { Polyline, Circle, Line, Text as SvgText } from "react-native-svg";
 import { ChevronLeft, ChevronRight, Flame, Camera, Lock, Sparkles } from "lucide-react-native";
 import { useUser } from "../../lib/userContext";
 import { useAppTheme } from "../../lib/themeContext";
+import { useT } from "../../lib/i18n";
+import { LoadingSkeleton, EmptyState } from "../../lib/StateViews";
 import {
   Colors,
   Gradients,
@@ -36,6 +39,8 @@ import { router, useFocusEffect } from "expo-router";
 import { SwipeableScanCard } from "../../components/SwipeableScanCard";
 import { getUserId } from "../../lib/userId";
 import { SensitiveGate } from "../../lib/sensitiveGate";
+import { FadeInComponent, StaggeredList } from "../../lib/animations";
+import Animated from "react-native-reanimated";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -45,6 +50,7 @@ const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 // 用皮肤分数（而不是扫描次数）画趋势折线，更能体现"是否在变好"
 // 只显示有数据的点，没有扫描的天用虚线连接
 function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
+  const { t } = useT();
   const chartW = width - Spacing.xl * 2 - Spacing.lg * 2;
   const chartH = 80;
 
@@ -58,7 +64,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
         }}
       >
         <Text style={st.emptyChartText}>
-          Scan daily to see your score trend
+          Scan daily to see trend
         </Text>
       </View>
     );
@@ -109,7 +115,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
     <View>
       {/* 趋势说明行 */}
       <View style={st.chartHeader}>
-        <Text style={st.chartLabel}>Skin Score Trend</Text>
+        <Text style={st.chartLabel}>Score Trend</Text>
         <View
           style={[
             st.trendBadge,
@@ -193,7 +199,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
         </SvgText>
       </Svg>
 
-      <Text style={st.chartSubLabel}>Last {sorted.length} scans</Text>
+      <Text style={st.chartSubLabel}>Last {sorted.length} records</Text>
     </View>
   );
 }
@@ -214,6 +220,7 @@ function MonthHero({
   currentMonth: number;
   isVIP: boolean;
 }) {
+  const { t } = useT();
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
   // 计算本月扫描天数（去重，同一天多次只算一天）
@@ -273,17 +280,17 @@ function MonthHero({
           ) : (
             <Lock size={18} color="#fff" style={{ marginBottom: 2 }} />
           )}
-          <Text style={st.heroStatLabel}>Avg score</Text>
+          <Text style={st.heroStatLabel}>Score</Text>
         </View>
         <View style={st.heroStatDivider} />
         <View style={st.heroStat}>
           <Text style={st.heroStatVal}>{stats?.total_scans ?? 0}</Text>
-          <Text style={st.heroStatLabel}>Total scans</Text>
+          <Text style={st.heroStatLabel}>Scans</Text>
         </View>
         <View style={st.heroStatDivider} />
         <View style={st.heroStat}>
           <Text style={st.heroStatVal}>{stats?.streak ?? 0}</Text>
-          <Text style={st.heroStatLabel}>Day streak</Text>
+          <Text style={st.heroStatLabel}>Streak</Text>
         </View>
       </View>
     </LinearGradient>
@@ -292,6 +299,7 @@ function MonthHero({
 
 // ─── 主页面 ───────────────────────────────────────────────
 export default function HistoryScreen() {
+  const { t } = useT();
   const { user } = useUser();
   const { colors: C, shadow: S, isDark } = useAppTheme();
   const isVIP = user?.mode === "vip";
@@ -299,6 +307,7 @@ export default function HistoryScreen() {
   const [scans, setScans] = useState<ScanRecord[]>([]);
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const now = new Date();
   const [currentYear, setCurrentYear] = useState(now.getFullYear());
@@ -327,12 +336,18 @@ export default function HistoryScreen() {
     }
   }
 
+  async function handleRefresh() {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  }
+
   async function handleDelete(id: string) {
     try {
       await fetch(`${API_URL}/scans/${id}`, { method: "DELETE" });
       setScans((prev) => prev.filter((s) => s._id !== id));
     } catch {
-      Alert.alert("Error", "Failed to delete scan.");
+      Alert.alert(t("common.error"), "Failed to delete scan.");
     }
   }
 
@@ -413,7 +428,7 @@ export default function HistoryScreen() {
           colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
           style={st.loadingContainer}
         >
-          <ActivityIndicator size="large" color={Colors.rose400} />
+          <LoadingSkeleton variant="fullscreen" />
         </LinearGradient>
       </SensitiveGate>
     );
@@ -426,10 +441,18 @@ export default function HistoryScreen() {
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={st.scroll}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={Colors.rose400}
+              progressViewOffset={10}
+            />
+          }
         >
           {/* ── 标题行 ── */}
           <View style={st.titleRow}>
-            <Text style={[st.pageTitle, isDark && { color: C.white }]}>History</Text>
+            <Text style={[st.pageTitle, isDark && { color: C.white }]}>{t("history.title")}</Text>
             {/* 筛选胶囊 */}
             <View style={[st.filterPill, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
               {["Face", "Body", "All"].map((f) => (
@@ -576,7 +599,7 @@ export default function HistoryScreen() {
                 />
                 <Text style={[st.legendText, isDark && { color: C.gray400 }]}>{"<70"}</Text>
               </View>
-              <Text style={[st.legendHint, isDark && { color: C.gray500 }]}>Tap a day to view scan</Text>
+              <Text style={[st.legendHint, isDark && { color: C.gray500 }]}>Tap day to view</Text>
             </View>
           </View>
 
@@ -595,9 +618,9 @@ export default function HistoryScreen() {
                 <Sparkles size={22} color={Colors.rose400} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[st.paywallChartTitle, isDark && { color: C.white }]}>Unlock your skin trend</Text>
+                <Text style={[st.paywallChartTitle, isDark && { color: C.white }]}>Unlock trend</Text>
                 <Text style={[st.paywallChartSub, isDark && { color: C.gray300 }]}>
-                  Get AI scoring and a weekly progress chart with VIP.
+                  Weekly progress with VIP.
                 </Text>
               </View>
               <LinearGradient
@@ -606,43 +629,35 @@ export default function HistoryScreen() {
                 end={{ x: 1, y: 0 }}
                 style={st.paywallChartCTA}
               >
-                <Text style={st.paywallChartCTAText}>Upgrade</Text>
+                <Text style={st.paywallChartCTAText}>{t("common.upgrade")}</Text>
               </LinearGradient>
             </TouchableOpacity>
           )}
 
           {/* ── 最近扫描记录 ── */}
-          <Text style={[st.sectionTitle, isDark && { color: C.white }]}>Recent Scans</Text>
+          <Text style={[st.sectionTitle, isDark && { color: C.white }]}>Recent</Text>
 
           {filteredScans.length === 0 ? (
-            <View style={st.emptyState}>
-              <View style={[st.emptyIconWrapper, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200, borderWidth: 1 }]}>
-                <Camera size={28} color={Colors.rose200} />
-              </View>
-              <Text style={[st.emptyText, isDark && { color: C.white }]}>No scans yet</Text>
-              <Text style={[st.emptySub, isDark && { color: C.gray400 }]}>
-                Take your first scan to start tracking!
-              </Text>
-              <TouchableOpacity
-                onPress={() => router.push("/(tabs)/camera")}
-                activeOpacity={0.85}
-              >
-                <LinearGradient colors={Gradients.roseMain} style={st.emptyBtn}>
-                  <Text style={st.emptyBtnText}>Take a scan now</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
+            <EmptyState
+              icon="📸"
+              title={t("history.empty")}
+              subtitle={t("history.emptySub")}
+              actionLabel={t("history.startScan")}
+              onAction={() => router.push("/(tabs)/camera")}
+            />
           ) : (
-            <View style={st.recentList}>
+            <StaggeredList stagger={60}>
               {filteredScans.map((scan, i) => (
-                <SwipeableScanCard
-                  key={scan._id ?? `scan-${i}`}
-                  scan={scan}
-                  onDelete={handleDelete}
-                  isVIP={isVIP}
-                />
+                <React.Fragment key={scan._id ?? `scan-${i}`}>
+                  <SwipeableScanCard
+                    scan={scan}
+                    onDelete={handleDelete}
+                    isVIP={isVIP}
+                  />
+                  {(i + 1) % 3 === 0 && <AdBanner style={{ marginVertical: 6 }} />}
+                </React.Fragment>
               ))}
-            </View>
+            </StaggeredList>
           )}
         </ScrollView>
       </SafeAreaView>

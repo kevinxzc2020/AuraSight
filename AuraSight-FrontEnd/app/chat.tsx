@@ -19,19 +19,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { sendChatMessage, ChatMessage } from "../lib/ai";
 import { getUserId } from "../lib/userId";
 import { Colors, Spacing, FontSize, Radius } from "../constants/theme";
-
-const SUGGESTED = [
-  "What do my recent scan results mean?",
-  "How can I reduce my spots faster?",
-  "Why is my skin score dropping?",
-  "What's the best routine for acne-prone skin?",
-];
-
-const WELCOME = `Hi! I'm your AuraSight AI skin consultant 👋
-
-I can help you understand your scan results, explain skin trends, and give personalized advice based on your data.
-
-What would you like to know about your skin today?`;
+import { useT } from "../lib/i18n";
 
 type Message = ChatMessage & { id: string; loading?: boolean };
 
@@ -75,8 +63,9 @@ function TypingDots() {
 }
 
 export default function ChatScreen() {
+  const { t } = useT();
   const [messages, setMessages] = useState<Message[]>([
-    { id: "welcome", role: "assistant", content: WELCOME },
+    { id: "welcome", role: "assistant", content: `Hi! I'm your AuraSight AI skin consultant 👋\n\nI can help you understand your scan results, explain skin trends, and give personalized advice based on your data.\n\nWhat would you like to know about your skin today?` },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -121,7 +110,7 @@ export default function ChatScreen() {
         {
           id: "err",
           role: "assistant",
-          content: "Sorry, I couldn't connect right now. Please check your connection and try again.",
+          content: "Sorry, I couldn't connect right now. Please check your connection and try again.", // TODO: Add i18n key for error message
         },
       ]);
     } finally {
@@ -144,7 +133,7 @@ export default function ChatScreen() {
               <Sparkles size={16} color="#fff" />
             </LinearGradient>
             <View>
-              <Text style={styles.headerTitle}>AI Skin Consultant</Text>
+              <Text style={styles.headerTitle}>{t("chat.title")}</Text>
               <Text style={styles.headerSub}>Powered by Claude</Text>
             </View>
           </View>
@@ -169,7 +158,12 @@ export default function ChatScreen() {
               messages.length === 1 ? (
                 <View style={styles.suggestedSection}>
                   <Text style={styles.suggestedLabel}>Suggested questions</Text>
-                  {SUGGESTED.map((q) => (
+                  {[
+                    "What do my recent scan results mean?",
+                    "How can I reduce my spots faster?",
+                    "Why is my skin score dropping?",
+                    "What's the best routine for acne-prone skin?",
+                  ].map((q) => (
                     <TouchableOpacity
                       key={q}
                       style={styles.suggestedChip}
@@ -190,7 +184,7 @@ export default function ChatScreen() {
               style={styles.input}
               value={input}
               onChangeText={setInput}
-              placeholder="Ask about your skin..."
+              placeholder={t("chat.placeholder")}
               placeholderTextColor={Colors.gray400}
               multiline
               maxLength={500}

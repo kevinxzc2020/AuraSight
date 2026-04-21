@@ -34,6 +34,7 @@ import {
 } from "../../constants/theme";
 import { saveScan, BodyZone, Detection, AcneType } from "../../lib/mongodb";
 import { analyzeImage, AnalyzeResult } from "../../lib/ai";
+import { showInterstitial, isRewardedAdReady, showRewardedAd } from "../../lib/ads";
 import { AnnotatedSkinImage, TYPE_COLOR, TYPE_LABEL } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
@@ -42,6 +43,9 @@ import { useUser } from "../../lib/userContext";
 import { hasConsent, acceptConsent } from "../../lib/consent";
 import { ConsentModal } from "../../components/ConsentModal";
 import { getUserId } from "../../lib/userId";
+import { useT } from "../../lib/i18n";
+import { AnimatedPressable, FadeInComponent, useScaleAnimation } from "../../lib/animations";
+import Animated from "react-native-reanimated";
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -94,6 +98,7 @@ const cd = StyleSheet.create({
 
 // ─── 主组件 ───────────────────────────────────────────────
 export default function CameraScreen() {
+  const { t } = useT();
   const [permission, requestPermission] = useCameraPermissions();
   const [mode, setMode] = useState<"face" | "body">("face");
   const [facing, setFacing] = useState<CameraType>("front");
@@ -247,7 +252,7 @@ export default function CameraScreen() {
 
       await runAiOn(finalUri);
     } catch {
-      Alert.alert("Error", "Failed to take photo. Please try again.");
+      Alert.alert(t("common.error"), "Failed to take photo. Please try again.");
       setSaving(false);
     }
   }
@@ -272,7 +277,22 @@ export default function CameraScreen() {
       );
       const b64 = resized.base64 ?? "";
       setPreviewBase64(b64); // 保存供上传 Cloudinary
-      const result = await analyzeImage(b64, "image/jpeg");
+      const uid = await getUserId();
+      const result = await analyzeImage(b64, "image/jpeg", uid ?? undefined);
+
+      // ── 非皮肤照片拦截 ──
+      if (result.not_skin) {
+        Alert.alert(
+          t("camera.notSkinTitle"),
+          t("camera.notSkinMsg"),
+          [{ text: t("common.ok") }]
+        );
+        setPreviewUri(null);
+        setPreviewBase64(null);
+        setAnalyzing(false);
+        return;
+      }
+
       setAiResult(result);
       await consumeAI(isVIP);
       const q = await getQuotaSummary();
@@ -353,14 +373,16 @@ export default function CameraScreen() {
         earned === 0 ? "✅ Already Done!" : `🎉 +${earned} pts!`,
         earned === 0
           ? "You already completed this task today."
-          : `Scan saved!${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
+          : `${t("camera.saved")}${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
         [
           { text: "View History", onPress: () => router.push("/(tabs)/history") },
-          { text: "OK", style: "cancel" },
+          { text: t("common.ok"), style: "cancel" },
         ],
       );
+      // 免费用户保存后显示插页广告
+      showInterstitial(isVIP);
     } catch {
-      Alert.alert("Error", "Failed to save scan. Please try again.");
+      Alert.alert(t("common.error"), "Failed to save scan. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -398,16 +420,16 @@ export default function CameraScreen() {
     return (
       <View style={styles.permissionContainer}>
         <Text style={styles.permissionEmoji}>📷</Text>
-        <Text style={styles.permissionTitle}>Camera Access Required</Text>
+        <Text style={styles.permissionTitle}>{t("camera.permissionTitle")}</Text>
         <Text style={styles.permissionText}>
-          AuraSight needs camera access to scan your skin
+          {t("camera.permissionMsg")}
         </Text>
         <TouchableOpacity onPress={requestPermission}>
           <LinearGradient
             colors={Gradients.roseMain}
             style={styles.permissionBtn}
           >
-            <Text style={styles.permissionBtnText}>Grant Permission</Text>
+            <Text style={styles.permissionBtnText}>{t("common.open")}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -433,6 +455,7 @@ export default function CameraScreen() {
             {/* 占位——保持 mode toggle 居中（已用 tab bar 切换页面，不再需要 X 关闭按钮） */}
             <View style={styles.iconButtonSpacer} />
 
+            {/* ── body mode 暂时隐藏，以后可能恢复 ──
             <View style={styles.modeToggle}>
               {(["face", "body"] as const).map((m) => (
                 <TouchableOpacity
@@ -468,6 +491,8 @@ export default function CameraScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+            ── end hidden body mode ── */}
+            <View style={{ width: 80 }} />{/* spacer to keep flash icon aligned */}
 
             <TouchableOpacity
               style={[styles.iconButton, flash && styles.iconButtonActive]}
@@ -490,15 +515,12 @@ export default function CameraScreen() {
               <Text style={styles.hintText}>
                 {countdown !== null
                   ? `Hold still... ${countdown}`
-                  : mode === "face"
-                    ? "👓 Remove glasses · Tap ⏱ auto-shoot · tap 📷 instant"
-                    : "Step back for full body view"}
+                  : t("camera.centerFace")}
               </Text>
             </View>
           </View>
 
-          {/* Body composition 入口：只在 body 模式显示，点击进入 Body Composition 页面
-              VIP 用户不显示 "VIP" 标签（他们已经付费了） */}
+          {/* ── body composition 入口暂时隐藏 ──
           {mode === "body" && countdown === null && (
             <TouchableOpacity
               style={styles.bodyCompEntry}
@@ -516,6 +538,7 @@ export default function CameraScreen() {
               )}
             </TouchableOpacity>
           )}
+          ── end hidden ── */}
 
           {/* 翻转按钮 */}
           <TouchableOpacity
@@ -540,11 +563,11 @@ export default function CameraScreen() {
           </TouchableOpacity>
 
           {/* 即拍快门 */}
-          <TouchableOpacity
+          <AnimatedPressable
             style={styles.shutterOuter}
             onPress={handleCapture}
             disabled={saving || countdown !== null}
-            activeOpacity={0.85}
+            scaleAmount={0.92}
           >
             <View
               style={[
@@ -567,7 +590,7 @@ export default function CameraScreen() {
                 />
               )}
             </View>
-          </TouchableOpacity>
+          </AnimatedPressable>
 
           {/* 倒计时按钮 */}
           <TouchableOpacity
@@ -587,7 +610,7 @@ export default function CameraScreen() {
           </TouchableOpacity>
         </View>
 
-        {saving && <Text style={styles.savingText}>Saving your scan...</Text>}
+        {saving && <Text style={styles.savingText}>{t("camera.saving")}</Text>}
       </View>
     </View>
 
@@ -602,9 +625,9 @@ export default function CameraScreen() {
         {/* Header */}
         <View style={styles.previewHeader}>
           <TouchableOpacity onPress={handleRetake} style={styles.previewBack}>
-            <Text style={styles.previewBackText}>✕ Retake</Text>
+            <Text style={styles.previewBackText}>✕ {t("camera.retake")}</Text>
           </TouchableOpacity>
-          <Text style={styles.previewTitle}>Scan Preview</Text>
+          <Text style={styles.previewTitle}>{t("camera.title")}</Text>
           {/* Edit controls */}
           {!analyzing && aiResult && (
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -683,7 +706,7 @@ export default function CameraScreen() {
               {analyzing && (
                 <View style={styles.analyzingOverlay}>
                   <ActivityIndicator size="large" color="#fff" />
-                  <Text style={styles.analyzingText}>AI analyzing spots...</Text>
+                  <Text style={styles.analyzingText}>{t("camera.analyzing")}</Text>
                 </View>
               )}
 
@@ -691,7 +714,7 @@ export default function CameraScreen() {
               {!analyzing && !editMode && aiResult && aiResult.detections.length > 0 && (
                 <View style={styles.toggleHint}>
                   <Text style={styles.toggleHintText}>
-                    {showAnnotations ? "👁 Tap to hide marks" : "👁 Tap to show marks"}
+                    {showAnnotations ? "👁 Tap to hide" : "👁 Tap to show"}
                   </Text>
                 </View>
               )}
@@ -708,7 +731,7 @@ export default function CameraScreen() {
             <Pressable style={styles.typePickerBackdrop} onPress={() => setPendingAddPos(null)}>
               <View style={styles.typePickerSheet}>
                 <Text style={styles.typePickerTitle}>What type of spot?</Text>
-                <Text style={styles.typePickerSub}>Select the acne type to add at this location</Text>
+                <Text style={styles.typePickerSub}>Select the acne type to add</Text>
                 {(["pustule", "redness", "broken", "scab"] as AcneType[]).map((type) => (
                   <TouchableOpacity
                     key={type}
@@ -733,7 +756,7 @@ export default function CameraScreen() {
                   </TouchableOpacity>
                 ))}
                 <TouchableOpacity style={styles.typePickerCancel} onPress={() => setPendingAddPos(null)}>
-                  <Text style={styles.typePickerCancelText}>Cancel</Text>
+                  <Text style={styles.typePickerCancelText}>{t("common.cancel")}</Text>
                 </TouchableOpacity>
               </View>
             </Pressable>
@@ -741,12 +764,13 @@ export default function CameraScreen() {
 
           {/* AI Results */}
           {!analyzing && aiResult && (
-            <>
+            <FadeInComponent delay={200} duration={400} from="bottom">
+              <View>
               {/* Summary row */}
               <View style={styles.previewSummaryRow}>
                 <View style={styles.previewStat}>
                   <Text style={styles.previewStatNum}>{aiResult.detections.length}</Text>
-                  <Text style={styles.previewStatLbl}>Spots Found</Text>
+                  <Text style={styles.previewStatLbl}>Spots</Text>
                 </View>
                 <View style={[styles.previewStat, styles.previewStatMid]}>
                   <Text style={[styles.previewStatNum, {
@@ -779,7 +803,7 @@ export default function CameraScreen() {
               {/* Tips */}
               {aiResult.tips?.length > 0 && (
                 <View style={styles.previewTipsCard}>
-                  <Text style={styles.previewSummaryTitle}>💡 Tips for Today</Text>
+                  <Text style={styles.previewSummaryTitle}>💡 Tips</Text>
                   {aiResult.tips.map((tip, i) => (
                     <View key={i} style={styles.previewTipRow}>
                       <View style={styles.previewTipDot} />
@@ -788,17 +812,17 @@ export default function CameraScreen() {
                   ))}
                 </View>
               )}
-            </>
+              </View>
+            </FadeInComponent>
           )}
 
           {/* 用户拒绝 / 从未同意数据使用条款——引导去 Settings 打开开关 */}
           {!analyzing && !aiResult && consentLocked && (
             <View style={styles.paywallCard}>
               <Text style={styles.paywallEmoji}>🛡️</Text>
-              <Text style={styles.paywallTitle}>Photo data use is off</Text>
+              <Text style={styles.paywallTitle}>{t("camera.consentTitle")}</Text>
               <Text style={styles.paywallSub}>
-                AI detection needs your permission to analyze photos.{"\n"}
-                Enable it in Settings → Privacy → Allow photo data use.
+                {t("camera.consentMsg")}
               </Text>
               <TouchableOpacity
                 activeOpacity={0.88}
@@ -811,11 +835,11 @@ export default function CameraScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.paywallCTA}
                 >
-                  <Text style={styles.paywallCTAText}>Open Settings</Text>
+                  <Text style={styles.paywallCTAText}>{t("common.open")} Settings</Text>
                 </LinearGradient>
               </TouchableOpacity>
               <Text style={styles.paywallHint}>
-                Or tap Save to keep the photo locally without AI analysis.
+                {t("camera.saveWithout")}
               </Text>
             </View>
           )}
@@ -823,10 +847,9 @@ export default function CameraScreen() {
           {!analyzing && !aiResult && aiLocked && !consentLocked && !isVIP && (
             <View style={styles.paywallCard}>
               <Text style={styles.paywallEmoji}>🔒</Text>
-              <Text style={styles.paywallTitle}>AI detection used for this week</Text>
+              <Text style={styles.paywallTitle}>{t("camera.quotaUsed")}</Text>
               <Text style={styles.paywallSub}>
-                Free plan includes {WEEKLY_AI_LIMIT} AI scan per week.{"\n"}
-                Upgrade to VIP for unlimited detection & tracking.
+                {t("camera.quotaMsg", { n: String(WEEKLY_AI_LIMIT) })}
               </Text>
               <TouchableOpacity
                 activeOpacity={0.88}
@@ -839,18 +862,39 @@ export default function CameraScreen() {
                   end={{ x: 1, y: 1 }}
                   style={styles.paywallCTA}
                 >
-                  <Text style={styles.paywallCTAText}>Upgrade to VIP</Text>
+                  <Text style={styles.paywallCTAText}>{t("camera.upgradeVip")}</Text>
                 </LinearGradient>
               </TouchableOpacity>
+              {isRewardedAdReady() && (
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={async () => {
+                    const earned = await showRewardedAd();
+                    if (earned && previewUri) {
+                      setAiLocked(false);
+                      runAiOn(previewUri);
+                    }
+                  }}
+                  style={{
+                    marginTop: 10, paddingVertical: 10, paddingHorizontal: 24,
+                    borderRadius: 20, borderWidth: 1.5, borderColor: "#b77cff",
+                    backgroundColor: "rgba(183,124,255,0.08)",
+                  }}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: "700", color: "#b77cff", textAlign: "center" }}>
+                    {t("camera.watchAd")}
+                  </Text>
+                </TouchableOpacity>
+              )}
               <Text style={styles.paywallHint}>
-                Or tap Save to keep the photo without detection.
+                {t("camera.saveWithout")}
               </Text>
             </View>
           )}
 
           {!analyzing && !aiResult && !aiLocked && !consentLocked && (
             <View style={styles.previewNoAI}>
-              <Text style={styles.previewNoAIText}>AI analysis unavailable — scan will be saved without spot detection.</Text>
+              <Text style={styles.previewNoAIText}>{t("camera.noAi")}</Text>
             </View>
           )}
         </ScrollView>
@@ -870,7 +914,7 @@ export default function CameraScreen() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.previewSaveBtnText}>
-                  {analyzing ? "Analyzing..." : editMode ? `Save (${editableDetections.length} spots)` : "Save Scan"}
+                  {analyzing ? t("camera.analyzing") : editMode ? `${t("common.save")} (${editableDetections.length} spots)` : t("camera.saveScan")}
                 </Text>
               )}
             </LinearGradient>

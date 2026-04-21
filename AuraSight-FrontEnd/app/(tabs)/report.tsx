@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { useT } from "../../lib/i18n";
+import { LoadingSkeleton, EmptyState } from "../../lib/StateViews";
 import Svg, {
   Circle,
   Path,
@@ -22,6 +24,7 @@ import Svg, {
   Line,
   Text as SvgText,
 } from "react-native-svg";
+import { showInterstitial } from "../../lib/ads";
 import {
   TrendingUp,
   TrendingDown,
@@ -81,7 +84,7 @@ interface ReportData {
 
 // ─── 规则引擎：根据数据生成有温度的总结语 ────────────────
 // 这是免费版的"AI感"核心：用规则生成个性化文字，让用户感受到被关注
-function generateSummary(data: ReportData): string {
+function generateSummary(data: ReportData, t: ReturnType<typeof useT>["t"]): string {
   const change = data.score_change_pct;
   const scans = data.total_scans;
   const avg = data.avg_skin_score;
@@ -107,8 +110,9 @@ function generateSummary(data: ReportData): string {
 // 这个组件直接回答这个问题，不需要用户滚动去寻找。
 function BeforeAfterHero({ data }: { data: ReportData }) {
   const { colors: C, shadow: S, isDark } = useAppTheme();
+  const { t } = useT();
   const isImproved = data.score_change_pct >= 0;
-  const summary = generateSummary(data);
+  const summary = generateSummary(data, t);
 
   return (
     <View style={[st.heroCard, isDark && { backgroundColor: C.cardBg, ...S.card }]}>
@@ -210,6 +214,7 @@ function BeforeAfterHero({ data }: { data: ReportData }) {
 
 function ScoreLineChart({ data }: { data: DailyScore[] }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   const H = 80;
 
   if (data.length < 2) {
@@ -316,11 +321,12 @@ function ScoreLineChart({ data }: { data: DailyScore[] }) {
 }
 
 // ─── 甜甜圈图 ─────────────────────────────────────────────
+// Note: Labels will be translated dynamically in the component
 const ACNE_TYPES = [
-  { key: "pustule", label: "Pustule", color: AcneColors.pustule },
-  { key: "broken", label: "Broken", color: AcneColors.broken },
-  { key: "scab", label: "Scab", color: AcneColors.scab },
-  { key: "redness", label: "Redness", color: AcneColors.redness },
+  { key: "pustule", labelKey: "acne.pustule", color: AcneColors.pustule },
+  { key: "broken", labelKey: "acne.broken", color: AcneColors.broken },
+  { key: "scab", labelKey: "acne.scab", color: AcneColors.scab },
+  { key: "redness", labelKey: "acne.redness", color: AcneColors.redness },
 ];
 
 function DonutChart({
@@ -329,6 +335,7 @@ function DonutChart({
   breakdown: ReportData["acne_breakdown"];
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   const total = Object.values(breakdown).reduce((a, b) => a + b, 0);
   const size = 112;
   const r = 40;
@@ -419,7 +426,7 @@ function DonutChart({
             <Text
               style={{ flex: 1, fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray600 }}
             >
-              {item.label}
+              {t(item.labelKey)}
             </Text>
             <Text
               style={{
@@ -641,6 +648,14 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
   );
 }
 
+function getMockInsights(t: ReturnType<typeof useT>["t"]) {
+  return [
+    { icon: "🔬", titleKey: "report.insight.triggers", descKey: "report.insight.triggersSub" },
+    { icon: "📊", titleKey: "report.insight.trends", descKey: "report.insight.trendsSub" },
+    { icon: "💊", titleKey: "report.insight.products", descKey: "report.insight.productsSub" },
+  ];
+}
+
 function VIPUpgradeSection({
   isVip,
   userId,
@@ -651,6 +666,8 @@ function VIPUpgradeSection({
   onUpgrade: () => void;
 }) {
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
+  const mockInsights = getMockInsights(t);
 
   if (isVip) {
     return <DeepAnalysisCard userId={userId} />;
@@ -683,10 +700,10 @@ function VIPUpgradeSection({
               <Text style={{ fontSize: 16 }}>{ins.icon}</Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[st.vipPreviewItemTitle, isDark && { color: C.white }]}>{ins.title}</Text>
+              <Text style={[st.vipPreviewItemTitle, isDark && { color: C.white }]}>{t(ins.titleKey)}</Text>
               {/* 内容用模糊遮罩处理：标题可见，描述模糊 */}
               <Text style={[st.vipPreviewItemDesc, isDark && { color: C.gray600 }]} numberOfLines={1}>
-                {ins.desc}
+                {t(ins.descKey)}
               </Text>
             </View>
             <Lock size={12} color={isDark ? C.gray600 : Colors.gray200} />
@@ -942,6 +959,7 @@ function ShareOption({
 // ─── 主页面 ───────────────────────────────────────────────
 export default function ReportScreen() {
   const { colors: C, shadow: S, isDark } = useAppTheme();
+  const { t } = useT();
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isVip, setIsVip] = useState(false);
@@ -1008,8 +1026,10 @@ export default function ReportScreen() {
     try {
       const result = await generateAIReport(userId);
       setAiReport(result.report);
+      // 报告生成后给免费用户显示插页广告
+      showInterstitial(isVip);
     } catch {
-      setAiReport("Unable to generate report right now. Please try again later.");
+      setAiReport(t("report.aiError"));
     } finally {
       setAiReportLoading(false);
     }
@@ -1021,13 +1041,13 @@ export default function ReportScreen() {
         <LinearGradient
           colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
           style={st.center}>
-          <ActivityIndicator size="large" color={isDark ? C.pink500 : Colors.rose400} />
+          <LoadingSkeleton variant="fullscreen" />
         </LinearGradient>
       </SensitiveGate>
     );
   }
 
-  // 空状态：没有数据时引导用户去扫描
+  // Empty state: No data yet
   if (!data || data.total_scans === 0) {
     return (
       <SensitiveGate>
@@ -1035,22 +1055,13 @@ export default function ReportScreen() {
         colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
         style={st.container}>
         <SafeAreaView style={st.center}>
-          <View style={st.emptyIconWrapper}>
-            <Text style={{ fontSize: 40 }}>📊</Text>
-          </View>
-          <Text style={st.emptyTitle}>Your report is waiting</Text>
-          <Text style={st.emptySub}>
-            Complete your first scan to start building your 30-day journey
-            report.
-          </Text>
-          <TouchableOpacity
-            onPress={() => router.push("/(tabs)/camera")}
-            activeOpacity={0.85}
-          >
-            <LinearGradient colors={Gradients.roseMain} style={st.emptyBtn}>
-              <Text style={st.emptyBtnText}>Take my first scan</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+          <EmptyState
+            icon="📊"
+            title={t("report.noData")}
+            subtitle={t("report.noDataSub")}
+            actionLabel="Take my first scan"
+            onAction={() => router.push("/(tabs)/camera")}
+          />
         </SafeAreaView>
       </LinearGradient>
       </SensitiveGate>
@@ -1071,7 +1082,7 @@ export default function ReportScreen() {
         >
           {/* 标题区 */}
           <View style={st.titleArea}>
-            <Text style={[st.pageTitle, isDark && { color: C.white }]}>Your Report</Text>
+            <Text style={[st.pageTitle, isDark && { color: C.white }]}>{t("report.title")}</Text>
             {data.date_range && (
               <Text style={[st.dateRange, isDark && { color: C.gray400 }]}>
                 {data.date_range.from} — {data.date_range.to}
@@ -1088,11 +1099,11 @@ export default function ReportScreen() {
           <View style={st.statsRow}>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.total_scans}</Text>
-              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Scans</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>{t("report.totalScans")}</Text>
             </View>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.avg_skin_score}</Text>
-              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Avg Score</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>{t("report.avgSpots")}</Text>
             </View>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
               <View
@@ -1113,14 +1124,14 @@ export default function ReportScreen() {
                   {data.score_change_pct}%
                 </Text>
               </View>
-              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>Change</Text>
+              <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>{t("report.improvement")}</Text>
             </View>
           </View>
 
           {/* 折线图卡片 */}
           <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
             <View style={st.cardHeaderRow}>
-              <Text style={[st.cardTitle, isDark && { color: C.white }]}>Score Trend</Text>
+              <Text style={[st.cardTitle, isDark && { color: C.white }]}>{t("report.trend")}</Text>
               <Text style={[st.cardSub, isDark && { color: C.gray400 }]}>{data.streak} day streak 🔥</Text>
             </View>
             <ScoreLineChart data={data.daily_scores} />
@@ -1134,7 +1145,7 @@ export default function ReportScreen() {
           {Object.values(data.acne_breakdown).reduce((a, b) => a + b, 0) >
             0 && (
             <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
-              <Text style={[st.cardTitle, isDark && { color: C.white }]}>Condition Breakdown</Text>
+              <Text style={[st.cardTitle, isDark && { color: C.white }]}>{t("report.details")}</Text>
               <DonutChart breakdown={data.acne_breakdown} />
             </View>
           )}
@@ -1151,7 +1162,7 @@ export default function ReportScreen() {
                 <Sparkles size={20} color="#fff" />
               </View>
               <View style={st.aiReportInfo}>
-                <Text style={st.aiReportTitle}>Generate AI Report</Text>
+                <Text style={st.aiReportTitle}>{t("report.generateAi")}</Text>
                 <Text style={st.aiReportSub}>Personalized analysis by Claude AI</Text>
               </View>
               <ChevronRight size={18} color="rgba(255,255,255,0.8)" />
@@ -1177,7 +1188,7 @@ export default function ReportScreen() {
           </TouchableOpacity>
 
           {/* ── Chapter 4: VIP 深度分析 ── */}
-          <Text style={[st.chapterLabel, isDark && { color: C.gray500 }]}>Deep Analysis</Text>
+          <Text style={[st.chapterLabel, isDark && { color: C.gray500 }]}>{t("report.details")}</Text>
           <VIPUpgradeSection
             isVip={isVip}
             userId={userId}
@@ -1215,19 +1226,22 @@ export default function ReportScreen() {
                 <Sparkles size={16} color="#fff" />
               </LinearGradient>
               <View style={{ flex: 1 }}>
-                <Text style={[st.aiModalTitle, isDark && { color: C.white }]}>Your AI Skin Report</Text>
+                <Text style={[st.aiModalTitle, isDark && { color: C.white }]}>{t("report.aiReport")}</Text>
                 <Text style={[st.aiModalSub, isDark && { color: C.gray400 }]}>Generated by Claude · {new Date().toLocaleDateString()}</Text>
               </View>
               <TouchableOpacity onPress={() => setAiModalVisible(false)} style={[st.aiModalClose, isDark && { backgroundColor: C.gray700 }]}>
                 <X size={18} color={isDark ? C.gray400 : "#6B7280"} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={st.aiModalBody} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={st.aiModalBody}
+              contentContainerStyle={{ paddingBottom: 48 }}
+              showsVerticalScrollIndicator={true}>
               {aiReportLoading && !displayedAi ? (
                 <View style={st.aiLoadingBox}>
                   <ActivityIndicator size="large" color={isDark ? C.pink500 : "#F43F8F"} />
                   <Text style={[st.aiLoadingText, isDark && { color: C.gray400 }]}>
-                    Claude is analyzing your skin journey...
+                    {t("report.generating")}
                   </Text>
                 </View>
               ) : (
@@ -1289,7 +1303,7 @@ const st = StyleSheet.create({
   aiModalTitle: { fontSize: 16, fontWeight: "700", color: "#1F2937" },
   aiModalSub: { fontSize: 11, color: "#9CA3AF", marginTop: 2 },
   aiModalClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#F3F4F6", alignItems: "center", justifyContent: "center" },
-  aiModalBody: { paddingHorizontal: 24, paddingTop: 16 },
+  aiModalBody: { flex: 1, paddingHorizontal: 24, paddingTop: 16 },
   aiLoadingBox: { alignItems: "center", paddingVertical: 40, gap: 16 },
   aiLoadingText: { fontSize: 13, color: "#9CA3AF", textAlign: "center" },
   aiReportText: { fontSize: 14, color: "#374151", lineHeight: 24, paddingBottom: 20 },

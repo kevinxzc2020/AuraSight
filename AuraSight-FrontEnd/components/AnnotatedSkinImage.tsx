@@ -9,14 +9,29 @@
  * Edit mode: tap a marker to delete it, tap empty skin to add.
  */
 
-import React from "react";
-import { View, Image, StyleSheet, TouchableOpacity, Text } from "react-native";
+import React, { useState, useEffect } from "react";
+import { View, Image, StyleSheet, TouchableOpacity, Text, ImageLoadEventData, NativeSyntheticEvent } from "react-native";
 import Svg, {
   Circle, Path, Line, G,
   Text as SvgText,
   Defs, RadialGradient, Stop,
 } from "react-native-svg";
 import { Detection, AcneType } from "../lib/mongodb";
+
+// ─── Contain-mode coordinate mapping ─────────────────────────
+// resizeMode="contain" scales the image to fit entirely inside the container,
+// potentially adding letterbox padding. This avoids cropping, so coordinates
+// map exactly to the visible image area.
+function containTransform(
+  imgW: number, imgH: number, containerW: number, containerH: number,
+) {
+  const scale = Math.min(containerW / imgW, containerH / imgH);
+  const displayedW = imgW * scale;
+  const displayedH = imgH * scale;
+  const padX = (containerW - displayedW) / 2;  // letterbox padding left
+  const padY = (containerH - displayedH) / 2;  // letterbox padding top
+  return { scale, displayedW, displayedH, padX, padY };
+}
 
 // ─── Colours & labels ────────────────────────────────────────
 export const TYPE_COLOR: Record<AcneType, string> = {
@@ -185,11 +200,13 @@ function ScabMarker({ px, py, rx, ry, color, label, showLabel, seed }: {
 }
 
 // ─── Hit test ────────────────────────────────────────────────
-function hitTest(lx: number, ly: number, det: Detection, W: number, H: number): boolean {
-  const px = det.bbox.cx * W;
-  const py = det.bbox.cy * H;
-  const rx = Math.max(det.bbox.w * W / 2, 18);
-  const ry = Math.max(det.bbox.h * H / 2, 18);
+// Note: hitTest now receives pre-computed screen positions from toScreen()
+function hitTest(
+  lx: number, ly: number, px: number, py: number,
+  rxScreen: number, ryScreen: number,
+): boolean {
+  const rx = Math.max(rxScreen, 18);
+  const ry = Math.max(ryScreen, 18);
   // Generous hit: 1.6× the marker radius
   return ((lx - px) ** 2) / (rx * 1.6) ** 2 + ((ly - py) ** 2) / (ry * 1.6) ** 2 < 1;
 }
@@ -219,10 +236,66 @@ export function AnnotatedSkinImage({
   onAddAtPosition,
 }: Props) {
 
+  // ── Get actual image dimensions for contain-mode coordinate mapping ──
+  const [imgSize, setImgSize] = useState<{ w: number; h: number } | null>(null);
+
+  // Strategy 1: Image.getSize on mount/URI change (works for file:// and http://)
+  useEffect(() => {
+    if (!imageUri) return;
+    Image.getSize(
+      imageUri,
+      (w, h) => {
+        if (w > 0 && h > 0) setImgSize({ w, h });
+      },
+      () => {}, // silently fail, onLoad will try
+    );
+  }, [imageUri]);
+
+  // Strategy 2: onLoad event (backup — works for all URI types)
+  const onImageLoad = (e: NativeSyntheticEvent<ImageLoadEventData>) => {
+    const src = (e.nativeEvent as any)?.source;
+    if (src?.width > 0 && src?.height > 0 && !imgSize) {
+      setImgSize({ w: src.width, h: src.height });
+    }
+  };
+
+  // Compute contain-mode layout (fall back to identity if image size unknown)
+  const layout = imgSize
+    ? containTransform(imgSize.w, imgSize.h, W, H)
+    : null;
+
+  // Map normalized (0–1) detection coords → screen px
+  const toScreen = (cx: number, cy: number) => {
+    if (layout) {
+      return {
+        px: layout.padX + cx * layout.displayedW,
+        py: layout.padY + cy * layout.displayedH,
+      };
+    }
+    // Fallback: assume image fills container exactly
+    return { px: cx * W, py: cy * H };
+  };
+
+  // Map screen px → normalized coords (for edit-mode taps)
+  const fromScreen = (sx: number, sy: number) => {
+    if (layout) {
+      return {
+        cx: (sx - layout.padX) / layout.displayedW,
+        cy: (sy - layout.padY) / layout.displayedH,
+      };
+    }
+    return { cx: sx / W, cy: sy / H };
+  };
+
   return (
-    <View style={[styles.wrapper, { width: W, height: H, borderRadius }]}>
-      {/* Base photo */}
-      <Image source={{ uri: imageUri }} style={{ width: W, height: H }} resizeMode="cover" />
+    <View style={[styles.wrapper, { width: W, height: H, borderRadius, backgroundColor: "#000" }]}>
+      {/* Base photo — contain: no cropping, coordinates map exactly */}
+      <Image
+        source={{ uri: imageUri }}
+        style={{ width: W, height: H }}
+        resizeMode="contain"
+        onLoad={onImageLoad}
+      />
 
       {/* SVG markers — one per detection, no merging */}
       {detections.length > 0 && (
@@ -230,10 +303,12 @@ export function AnnotatedSkinImage({
           {detections.map((det, idx) => {
             const color = TYPE_COLOR[det.acne_type] ?? "#F472B6";
             const label = TYPE_LABEL[det.acne_type] ?? det.acne_type;
-            const px = det.bbox.cx * W;
-            const py = det.bbox.cy * H;
-            const rx = Math.max(det.bbox.w * W / 2, 16);
-            const ry = Math.max(det.bbox.h * H / 2, 16);
+            const { px, py } = toScreen(det.bbox.cx, det.bbox.cy);
+            // Scale bbox size using the actual displayed image size
+            const scaleW = layout ? layout.displayedW : W;
+            const scaleH = layout ? layout.displayedH : H;
+            const rx = Math.max(det.bbox.w * scaleW / 2, 16);
+            const ry = Math.max(det.bbox.h * scaleH / 2, 16);
             const r  = Math.max((rx + ry) / 2, 16);   // circle radius for pustule/broken
             const seed = det.bbox.cx * 11.3 + det.bbox.cy * 7.7 + idx;
 
@@ -281,19 +356,26 @@ export function AnnotatedSkinImage({
           onMoveShouldSetResponder={() => false}
           onResponderGrant={(e) => {
             const { locationX, locationY } = e.nativeEvent;
-            const hitIdx = detections.findIndex(d => hitTest(locationX, locationY, d, W, H));
+            const sW = layout ? layout.displayedW : W;
+            const sH = layout ? layout.displayedH : H;
+            const hitIdx = detections.findIndex(d => {
+              const { px: dpx, py: dpy } = toScreen(d.bbox.cx, d.bbox.cy);
+              return hitTest(locationX, locationY, dpx, dpy, d.bbox.w * sW / 2, d.bbox.h * sH / 2);
+            });
             if (hitIdx >= 0) {
               onDeleteDetection?.(hitIdx);
             } else {
-              onAddAtPosition?.(locationX / W, locationY / H);
+              const norm = fromScreen(locationX, locationY);
+              onAddAtPosition?.(norm.cx, norm.cy);
             }
           }}
         >
           {/* ✕ per-marker delete button */}
           {detections.map((det, idx) => {
-            const px = det.bbox.cx * W;
-            const py = det.bbox.cy * H;
-            const r  = Math.max((det.bbox.w * W + det.bbox.h * H) / 4, 16);
+            const { px, py } = toScreen(det.bbox.cx, det.bbox.cy);
+            const sW = layout ? layout.displayedW : W;
+            const sH = layout ? layout.displayedH : H;
+            const r  = Math.max((det.bbox.w * sW + det.bbox.h * sH) / 4, 16);
             return (
               <TouchableOpacity
                 key={`del-${idx}`}

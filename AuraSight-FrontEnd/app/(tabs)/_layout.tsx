@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { Colors, Gradients } from "../../constants/theme";
 import { useAppTheme } from "../../lib/themeContext";
+import { useT } from "../../lib/i18n";
 
 // ─── 普通 tab 图标——带"激活态胶囊"指示 ─────────────────────
 function TabIcon({
@@ -88,6 +89,7 @@ function CameraTabButton() {
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
   const { colors: C, isDark } = useAppTheme();
+  const { t } = useT();
   return (
     <Tabs
       screenOptions={{
@@ -112,14 +114,14 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: "Home",
+          title: t("tabs.home"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Home} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="community"
         options={{
-          title: "Community",
+          title: t("community.title"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Users} focused={focused} />,
         }}
       />
@@ -135,27 +137,27 @@ export default function TabLayout() {
       <Tabs.Screen
         name="report"
         options={{
-          title: "Report",
+          title: t("tabs.report"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={FileText} focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: "Profile",
+          title: t("tabs.profile"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
         }}
       />
       {/* History、Settings 隐藏在 tab bar 外 */}
       <Tabs.Screen
         name="history"
-        options={{ href: null, title: "History" }}
+        options={{ href: null, title: t("tabs.history") }}
       />
       <Tabs.Screen
         name="settings"
         options={{
           href: null,
-          title: "Settings",
+          title: t("settings.title"),
           tabBarIcon: ({ focused }) => <TabIcon Icon={Settings} focused={focused} />,
         }}
       />

@@ -11,7 +11,6 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   Pressable,
   ScrollView,
   Image,
@@ -26,9 +25,13 @@ import { Colors, Spacing, FontSize, Radius } from "../../constants/theme";
 import { useAppTheme } from "../../lib/themeContext";
 import { useUser } from "../../lib/userContext";
 import { useT } from "../../lib/i18n";
+import { LoadingSkeleton, EmptyState } from "../../lib/StateViews";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
+import { AdBanner } from "../../lib/ads";
+import { FadeInComponent, StaggeredList, AnimatedPressable } from "../../lib/animations";
+import Animated from "react-native-reanimated";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
 
@@ -67,6 +70,7 @@ interface Comment {
   author_id: string;
   author_name: string;
   content: string;
+  image_url?: string;
   created_at: string;
 }
 
@@ -85,16 +89,18 @@ function nameInitial(name: string) {
 
 // ─── 评论区 ───────────────────────────────────────────────
 function CommentSection({
-  postId, myId, myName, isDark, C, t,
+  postId, myId, myName, isDark, C, onImagePress, t,
 }: {
   postId: string; myId: string; myName: string;
   isDark: boolean; C: ReturnType<typeof useAppTheme>["colors"];
+  onImagePress: (uri: string) => void;
   t: (k: string) => string;
 }) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading]   = useState(true);
   const [text, setText]         = useState("");
   const [sending, setSending]   = useState(false);
+  const [commentImg, setCommentImg] = useState<{ uri: string; base64: string } | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -106,18 +112,36 @@ function CommentSection({
     setLoading(false);
   }
 
+  async function pickCommentImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") { Alert.alert("🖼️", "Please allow photo access."); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, quality: 0.6, base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      setCommentImg({ uri: a.uri, base64: a.base64 ?? "" });
+    }
+  }
+
   async function send() {
-    if (!text.trim()) return;
+    if (!text.trim() && !commentImg) return;
     setSending(true);
     try {
       const r = await fetch(`${API_URL}/posts/${postId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ author_id: myId, author_name: myName, content: text.trim() }),
+        body: JSON.stringify({
+          author_id: myId, author_name: myName,
+          content: text.trim(),
+          image_base64: commentImg?.base64 ?? undefined,
+        }),
       });
       const c = await r.json();
       setComments(p => [...p, c]);
       setText("");
+      setCommentImg(null);
     } catch {
       Alert.alert("Error", t("community.errorSend"));
     }
@@ -141,12 +165,29 @@ function CommentSection({
               <Text style={[cs.name, isDark && { color: C.gray900 }]}>{c.author_name}</Text>
               <Text style={[cs.time, isDark && { color: C.gray400 }]}>{timeAgo(c.created_at, t)}</Text>
             </View>
-            <Text style={[cs.text, isDark && { color: C.gray600 }]}>{c.content}</Text>
+            {!!c.content && <Text style={[cs.text, isDark && { color: C.gray600 }]}>{c.content}</Text>}
+            {!!c.image_url && (
+              <TouchableOpacity onPress={() => onImagePress(c.image_url!)} activeOpacity={0.9}>
+                <Image source={{ uri: c.image_url }} style={cs.commentImage} resizeMode="cover" />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       ))}
+      {/* 图片预览 */}
+      {commentImg && (
+        <View style={cs.imgPreviewRow}>
+          <Image source={{ uri: commentImg.uri }} style={cs.imgThumb} resizeMode="cover" />
+          <TouchableOpacity onPress={() => setCommentImg(null)} hitSlop={6}>
+            <X size={14} color={Colors.rose400} />
+          </TouchableOpacity>
+        </View>
+      )}
       {/* 输入框 */}
       <View style={[cs.inputRow, isDark && { backgroundColor: C.gray200, borderColor: C.gray300 }]}>
+        <TouchableOpacity onPress={pickCommentImage} hitSlop={6} style={{ paddingRight: 4 }}>
+          <ImagePlus size={18} color={commentImg ? Colors.rose400 : C.gray400} />
+        </TouchableOpacity>
         <TextInput
           style={[cs.input, isDark && { color: C.gray900 }]}
           placeholder={t("community.reply")}
@@ -156,10 +197,10 @@ function CommentSection({
           multiline
           maxLength={300}
         />
-        <TouchableOpacity onPress={send} disabled={sending || !text.trim()} hitSlop={8}>
+        <TouchableOpacity onPress={send} disabled={sending || (!text.trim() && !commentImg)} hitSlop={8}>
           {sending
             ? <ActivityIndicator size="small" color={Colors.rose400} />
-            : <Send size={16} color={text.trim() ? Colors.rose400 : C.gray300} />}
+            : <Send size={16} color={(text.trim() || commentImg) ? Colors.rose400 : C.gray300} />}
         </TouchableOpacity>
       </View>
     </View>
@@ -168,15 +209,18 @@ function CommentSection({
 
 // ─── 帖子卡片 ─────────────────────────────────────────────
 function PostCard({
-  post, myId, myName, isDark, C, onLike, onDelete, t,
+  post, myId, myName, isDark, C, onLike, onDelete, onImagePress, t,
 }: {
   post: Post; myId: string; myName: string;
   isDark: boolean; C: ReturnType<typeof useAppTheme>["colors"];
   onLike: (id: string) => void;
   onDelete: (id: string) => void;
+  onImagePress: (uri: string) => void;
   t: (k: string) => string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [textExpanded, setTextExpanded] = useState(false);
+  const [textClamped, setTextClamped]   = useState(false);
   const liked = post.likes.includes(myId);
   const tag   = tagInfo(post.tag);
 
@@ -223,12 +267,27 @@ function PostCard({
       </View>
 
       {/* 正文 */}
-      <Text style={[pc.content, isDark && { color: C.gray800 }]}>{post.content}</Text>
+      <Text
+        style={[pc.content, isDark && { color: C.gray800 }]}
+        numberOfLines={textExpanded ? undefined : 4}
+        onTextLayout={(e) => {
+          if (!textClamped && e.nativeEvent.lines.length > 4) setTextClamped(true);
+        }}
+      >
+        {post.content}
+      </Text>
+      {textClamped && (
+        <TouchableOpacity onPress={() => setTextExpanded(p => !p)} hitSlop={6}>
+          <Text style={{ fontSize: 13, color: Colors.rose400, fontWeight: "600", marginTop: 2 }}>
+            {textExpanded ? t("community.showLess") : t("community.showMore")}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* 图片 */}
       {post.image_url && (
         <TouchableOpacity
-          onPress={() => router.push(`/post/${post._id}`)}
+          onPress={() => onImagePress(post.image_url!)}
           activeOpacity={0.9}
           style={pc.imageWrap}
         >
@@ -252,7 +311,7 @@ function PostCard({
       </View>
 
       {expanded && (
-        <CommentSection postId={post._id} myId={myId} myName={myName} isDark={isDark} C={C} t={t} />
+        <CommentSection postId={post._id} myId={myId} myName={myName} isDark={isDark} C={C} onImagePress={onImagePress} t={t} />
       )}
     </TouchableOpacity>
   );
@@ -277,6 +336,7 @@ export default function CommunityScreen() {
 
   const [myName, setMyName] = useState("Anonymous");
   const [myId, setMyId]     = useState("guest");
+  const [lightboxUri, setLightboxUri] = useState<string | null>(null);
 
   useEffect(() => {
     loadIdentity();
@@ -337,13 +397,12 @@ export default function CommunityScreen() {
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("🖼️", "Please allow photo access to attach images.");
+      Alert.alert("🖼️", "Please allow photo access to attach images."); // TODO: Add i18n key for permission alert
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.7,
+      quality: 1,
       base64: true,
     });
     if (!result.canceled && result.assets[0]) {
@@ -384,12 +443,19 @@ export default function CommunityScreen() {
     ? posts
     : posts.filter(p => p.tag === activeTag || p.is_pinned);
 
-  const renderPost = useCallback(({ item }: { item: Post }) => (
-    <PostCard
-      post={item} myId={myId} myName={myName}
-      isDark={isDark} C={C}
-      onLike={handleLike} onDelete={handleDelete} t={t}
-    />
+  const renderPost = useCallback(({ item, index }: { item: Post; index: number }) => (
+    <FadeInComponent delay={index * 60} duration={350} from="bottom">
+      <View>
+        <PostCard
+          post={item} myId={myId} myName={myName}
+          isDark={isDark} C={C}
+          onLike={handleLike} onDelete={handleDelete}
+          onImagePress={setLightboxUri} t={t}
+        />
+        {/* 每 3 个帖子后插一个广告 */}
+        {(index + 1) % 3 === 0 && <AdBanner style={{ marginHorizontal: 16, marginBottom: 8 }} />}
+      </View>
+    </FadeInComponent>
   ), [myId, myName, isDark, C, t]);
 
   return (
@@ -441,9 +507,11 @@ export default function CommunityScreen() {
           </ScrollView>
         </View>
 
-        {/* 帖子列表 */}
+        {/* Posts List */}
         {loading ? (
-          <ActivityIndicator size="large" color={Colors.rose400} style={{ marginTop: 60 }} />
+          <View style={{ marginTop: 60 }}>
+            <LoadingSkeleton variant="list" count={3} />
+          </View>
         ) : (
           <FlatList
             data={filtered}
@@ -455,21 +523,24 @@ export default function CommunityScreen() {
               <RefreshControl refreshing={refreshing} onRefresh={() => fetchPosts(true)} tintColor={Colors.rose400} />
             }
             ListEmptyComponent={
-              <View style={st.empty}>
-                <Text style={st.emptyEmoji}>🌸</Text>
-                <Text style={[st.emptyTxt, isDark && { color: C.gray400 }]}>{t("community.empty")}</Text>
-              </View>
+              <EmptyState
+                icon="🌸"
+                title={t("community.empty")}
+                subtitle={t("community.sub")}
+                actionLabel={t("community.newPost")}
+                onAction={() => setShowCompose(true)}
+              />
             }
           />
         )}
       </SafeAreaView>
 
       {/* 浮动发帖按钮 */}
-      <TouchableOpacity style={[st.fab, S.button]} onPress={() => setShowCompose(true)} activeOpacity={0.85}>
+      <AnimatedPressable style={[st.fab, S.button]} onPress={() => setShowCompose(true)} scaleAmount={0.9}>
         <LinearGradient colors={["#F43F8F", "#F472B6"]} style={st.fabGrad}>
           <Plus size={22} color="#fff" strokeWidth={2.5} />
         </LinearGradient>
-      </TouchableOpacity>
+      </AnimatedPressable>
 
       {/* 发帖 Modal */}
       <Modal visible={showCompose} animationType="slide" transparent>
@@ -559,6 +630,28 @@ export default function CommunityScreen() {
               </View>
             </Pressable>
           </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
+      {/* ── 图片全屏查看 ── */}
+      <Modal visible={!!lightboxUri} transparent animationType="fade" onRequestClose={() => setLightboxUri(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.92)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setLightboxUri(null)}
+        >
+          {lightboxUri && (
+            <Image
+              source={{ uri: lightboxUri }}
+              style={{ width: "94%", height: "80%" }}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setLightboxUri(null)}
+            style={{ position: "absolute", top: 54, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+          >
+            <X size={20} color="#fff" />
+          </TouchableOpacity>
         </Pressable>
       </Modal>
     </View>
@@ -710,4 +803,10 @@ const cs = StyleSheet.create({
     backgroundColor: "#f9fafb", marginTop: 6, gap: 8,
   },
   input:    { flex: 1, fontSize: 12, color: Colors.gray800, maxHeight: 80, textAlignVertical: "top" },
+  commentImage: { width: "100%", height: 140, borderRadius: 10, marginTop: 6 },
+  imgPreviewRow: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    marginTop: 6, marginBottom: 4,
+  },
+  imgThumb: { width: 60, height: 60, borderRadius: 8 },
 });

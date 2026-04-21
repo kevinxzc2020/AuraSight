@@ -1,4 +1,5 @@
 import React, { useCallback, useState, useRef, useEffect } from "react";
+import { AdBanner } from "../../lib/ads";
 import {
   View,
   Text,
@@ -44,32 +45,26 @@ import { getDailyAdvice } from "../../lib/ai";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { getUserId } from "../../lib/userId";
+import { useT } from "../../lib/i18n";
+import { AnimatedPressable, FadeInComponent, StaggeredList } from "../../lib/animations";
 
 const { width, height } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
 
-function getGreeting(name?: string): string {
+type TFn = (key: string, vars?: Record<string, string>) => string;
+
+function getGreeting(name: string | undefined, t: TFn): string {
   const hour = new Date().getHours();
-  const n = name?.split(" ")[0]; // 只取 first name，更亲和
-  if (hour < 6) return n ? `Hey ${n}, burning the midnight oil?` : "Hey, night owl";
-  if (hour < 12) return n ? `Good morning, ${n}` : "Good morning";
-  if (hour < 18) return n ? `Good afternoon, ${n}` : "Good afternoon";
-  if (hour < 22) return n ? `Good evening, ${n}` : "Good evening";
-  return n ? `Still up, ${n}?` : "Still up?";
+  const n = name?.split(" ")[0];
+  if (hour < 6) return n ? t("home.greet.nightOwl", { name: n }) : t("home.greet.nightOwlAnon");
+  if (hour < 12) return n ? t("home.greet.morning", { name: n }) : t("home.greet.morningAnon");
+  if (hour < 18) return n ? t("home.greet.afternoon", { name: n }) : t("home.greet.afternoonAnon");
+  if (hour < 22) return n ? t("home.greet.evening", { name: n }) : t("home.greet.eveningAnon");
+  return n ? t("home.greet.lateNight", { name: n }) : t("home.greet.lateNightAnon");
 }
 
-function getDayMessage(): string {
-  const day = new Date().getDay(); // 0=Sun
-  const msgs = [
-    "Sunday — slow down, recharge, and let your skin breathe.",
-    "Monday — fresh start! A little discipline goes a long way.",
-    "Tuesday — keep the momentum going, you're doing great.",
-    "Wednesday — halfway there. Stay hydrated & stay consistent.",
-    "Thursday — almost weekend! Don't skip your routine tonight.",
-    "Friday — you made it. Treat yourself, but wash your face first.",
-    "Saturday — relax day. A scan only takes 10 seconds.",
-  ];
-  return msgs[day];
+function getDayMessage(t: TFn): string {
+  return t(`home.dayMsg.${new Date().getDay()}`);
 }
 
 function todayKey() {
@@ -78,10 +73,10 @@ function todayKey() {
 
 // ─── Milestones ───────────────────────────────────────────────
 const MILESTONES = [
-  { points: 100, label: "Trend Chart" },
-  { points: 300, label: "Cause Report" },
-  { points: 500, label: "PDF Export" },
-  { points: 1000, label: "VIP Trial" },
+  { points: 100, labelKey: "home.milestone.trendChart" },
+  { points: 300, labelKey: "home.milestone.causeReport" },
+  { points: 500, labelKey: "home.milestone.pdfExport" },
+  { points: 1000, labelKey: "home.milestone.vipTrial" },
 ];
 
 // ─── In-app interactive daily tasks ──────────────────────────
@@ -95,95 +90,28 @@ type TaskAction =
 interface ExtraTask {
   id: string;
   emoji: string;
-  label: string;
-  sub: string;
+  labelKey: string;
+  subKey: string;
   pts: number;
-  btnLabel: string;
+  btnLabelKey: string;
   action: TaskAction;
-  vip?: boolean;   // VIP-locked task
+  vip?: boolean;
 }
 
 const EXTRA_TASKS: ExtraTask[] = [
-  {
-    id: "mood",
-    emoji: "😊",
-    label: "Rate your skin mood",
-    sub: "+10 pts · takes 5 seconds",
-    pts: 10,
-    btnLabel: "Rate",
-    action: { type: "mood" },
-  },
-  {
-    id: "tip",
-    emoji: "💡",
-    label: "Read today's skin tip",
-    sub: "+5 pts · new tip every day",
-    pts: 5,
-    btnLabel: "Read",
-    action: { type: "tip" },
-  },
-  {
-    id: "trend",
-    emoji: "📊",
-    label: "Check your 7-day trend",
-    sub: "+10 pts · see how you're progressing",
-    pts: 10,
-    btnLabel: "View",
-    action: { type: "navigate", to: "/(tabs)/history" },
-  },
-  {
-    id: "report",
-    emoji: "📋",
-    label: "Review last scan report",
-    sub: "+10 pts · understand your results",
-    pts: 10,
-    btnLabel: "Open",
-    action: { type: "navigate", to: "/(tabs)/report" },
-  },
-  {
-    id: "ai_report",
-    emoji: "🤖",
-    label: "Generate AI skin analysis",
-    sub: "+20 pts · deep dive into your skin health",
-    pts: 20,
-    btnLabel: "Unlock",
-    action: { type: "navigate", to: "/(tabs)/report" },
-    vip: true,
-  },
-  {
-    id: "ai_chat",
-    emoji: "💬",
-    label: "Chat with your skin advisor",
-    sub: "+15 pts · personalized advice just for you",
-    pts: 15,
-    btnLabel: "Unlock",
-    action: { type: "navigate", to: "/chat" },
-    vip: true,
-  },
+  { id: "mood",      emoji: "😊", labelKey: "home.task.mood",     subKey: "home.task.moodSub",     pts: 10, btnLabelKey: "home.task.moodBtn",     action: { type: "mood" } },
+  { id: "tip",       emoji: "💡", labelKey: "home.task.tip",      subKey: "home.task.tipSub",      pts: 5,  btnLabelKey: "home.task.tipBtn",      action: { type: "tip" } },
+  { id: "trend",     emoji: "📊", labelKey: "home.task.trend",    subKey: "home.task.trendSub",    pts: 10, btnLabelKey: "home.task.trendBtn",    action: { type: "navigate", to: "/(tabs)/history" } },
+  { id: "report",    emoji: "📋", labelKey: "home.task.report",   subKey: "home.task.reportSub",   pts: 10, btnLabelKey: "home.task.reportBtn",   action: { type: "navigate", to: "/(tabs)/report" } },
+  { id: "ai_report", emoji: "🤖", labelKey: "home.task.aiReport", subKey: "home.task.aiReportSub", pts: 20, btnLabelKey: "home.task.aiReportBtn", action: { type: "navigate", to: "/(tabs)/report" }, vip: true },
+  { id: "ai_chat",   emoji: "💬", labelKey: "home.task.aiChat",   subKey: "home.task.aiChatSub",   pts: 15, btnLabelKey: "home.task.aiChatBtn",   action: { type: "navigate", to: "/chat" }, vip: true },
 ];
 
-// ─── Daily skin tips (rotates by day of year) ─────────────────
-const SKIN_TIPS = [
-  "Cleanse twice daily — morning removes overnight oils, evening removes pollutants and makeup.",
-  "SPF 30+ every morning, even on cloudy days. UV rays penetrate clouds and windows.",
-  "Touching your face transfers bacteria. Keep hands away between cleansing routines.",
-  "Pillowcases collect oil and bacteria. Change them at least once a week.",
-  "Lukewarm water is ideal for washing. Hot water strips your skin's natural barrier.",
-  "Stress triggers cortisol, which increases oil production and breakouts.",
-  "Retinol at night, vitamin C in the morning — they work best at different times.",
-  "Hydration shows in your skin. Dehydrated skin overproduces oil to compensate.",
-  "Pat dry, don't rub. Rubbing with a towel creates micro-tears in skin.",
-  "Always apply skincare to slightly damp skin — it absorbs actives better.",
-  "Spot treatments work best applied to a clean face before moisturiser.",
-  "Exfoliate 1-2x per week max. Over-exfoliation weakens your skin barrier.",
-  "Antioxidants in your diet (berries, green tea) help fight skin-damaging free radicals.",
-  "The skin around your eyes is thinnest — use a dedicated eye cream, gently.",
-  "Consistency beats intensity. A simple routine done daily beats an elaborate one done rarely.",
-];
+const SKIN_TIP_COUNT = 15;
 
-function getTodayTip(): string {
+function getTodayTip(t: TFn): string {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
-  return SKIN_TIPS[dayOfYear % SKIN_TIPS.length];
+  return t(`home.tip.${dayOfYear % SKIN_TIP_COUNT}`);
 }
 
 // ─── Animated Flame ──────────────────────────────────────────
@@ -234,6 +162,7 @@ function SkinScoreHero({
   totalPts: number;
   scoreChange: number | null;
 }) {
+  const { t } = useT();
   const next = MILESTONES.find((m) => totalPts < m.points);
   const prev = next ? MILESTONES[MILESTONES.indexOf(next) - 1] : null;
   const fromPts = prev?.points ?? 0;
@@ -242,16 +171,16 @@ function SkinScoreHero({
     : 1;
 
   const hasScore = score !== null;
-  let condition = hasScore ? (score >= 85 ? "Excellent condition" : score >= 70 ? "Looking good" : "Needs some care") : "No scan yet";
+  let condition = hasScore ? (score >= 85 ? t("home.condition.excellent") : score >= 70 ? t("home.condition.good") : t("home.condition.needsCare")) : t("home.condition.noScan");
 
   const changeText =
     scoreChange === null
-      ? "Start scanning to track trends"
+      ? t("home.change.startScan")
       : scoreChange > 0
-        ? `↑ +${scoreChange} from last week`
+        ? t("home.change.up", { n: String(scoreChange) })
         : scoreChange < 0
-          ? `↓ ${scoreChange} from last week`
-          : "No change from last week";
+          ? t("home.change.down", { n: String(scoreChange) })
+          : t("home.change.none");
 
   return (
     <View style={styles.heroWrapper}>
@@ -268,7 +197,7 @@ function SkinScoreHero({
           {/* Left: Score */}
           <View style={styles.heroLeft}>
             <View style={styles.heroLabelPill}>
-              <Text style={styles.heroLabelText}>YOUR SKIN SCORE</Text>
+              <Text style={styles.heroLabelText}>{t("home.yourSkinScore")}</Text>
             </View>
             <Text style={styles.heroScore}>
               {hasScore ? score : "--"}
@@ -284,8 +213,8 @@ function SkinScoreHero({
           <View style={styles.ptsBubble}>
             <View style={styles.ptsBubbleInner} />
             <Text style={styles.ptsBubbleVal}>{todayPts}</Text>
-            <Text style={styles.ptsBubblePts}>pts</Text>
-            <Text style={styles.ptsBubbleDay}>today</Text>
+            <Text style={styles.ptsBubblePts}>{t("home.pts")}</Text>
+            <Text style={styles.ptsBubbleDay}>{t("home.today")}</Text>
           </View>
         </View>
 
@@ -293,7 +222,7 @@ function SkinScoreHero({
         {next && (
           <View style={styles.milestoneStrip}>
             <Text style={styles.milestoneText}>
-              ⭐&nbsp; Next: {next.label} &nbsp;·&nbsp; {totalPts} / {next.points} pts
+              ⭐&nbsp; {t("home.next", { label: t(next.labelKey), cur: String(totalPts), max: String(next.points) })}
             </Text>
             <View style={styles.milestoneTrack}>
               <View style={[styles.milestoneFill, { width: `${progress * 100}%` as any }]} />
@@ -306,11 +235,11 @@ function SkinScoreHero({
 }
 
 // ─── Spots Detail Modal ───────────────────────────────────────
-const ACNE_META: Record<AcneType, { label: string; color: string; desc: string }> = {
-  pustule:  { label: "Pustules",   color: "#F43F8F", desc: "Inflamed, pus-filled lesions" },
-  broken:   { label: "Wound",      color: "#F97316", desc: "Picked or burst pimple, open wound" },
-  redness:  { label: "Redness",    color: "#EF4444", desc: "Inflammatory redness patches" },
-  scab:     { label: "Scabs",      color: "#A78BFA", desc: "Healing or dried lesions" },
+const ACNE_META: Record<AcneType, { labelKey: string; color: string; descKey: string }> = {
+  pustule:  { labelKey: "acne.pustule",  color: "#F43F8F", descKey: "acne.pustuleDesc" },
+  broken:   { labelKey: "acne.broken",   color: "#F97316", descKey: "acne.brokenDesc" },
+  redness:  { labelKey: "acne.redness",  color: "#EF4444", descKey: "acne.rednessDesc" },
+  scab:     { labelKey: "acne.scab",     color: "#A78BFA", descKey: "acne.scabDesc" },
 };
 
 function SpotsModal({
@@ -326,11 +255,12 @@ function SpotsModal({
   breakdown: Record<AcneType, number> | null;
   latestScan: ScanRecord | null;
 }) {
+  const { t } = useT();
   const total = latestCount;
   const hasBreakdown = breakdown && Object.values(breakdown).some((v) => v > 0);
   const maxVal = hasBreakdown ? Math.max(...Object.values(breakdown!)) : 1;
 
-  const severity = total === 0 ? "Clear" : total <= 3 ? "Mild" : total <= 8 ? "Moderate" : "Severe";
+  const severity = total === 0 ? t("home.severity.clear") : total <= 3 ? t("home.severity.mild") : total <= 8 ? t("home.severity.moderate") : t("home.severity.severe");
   const severityColor = total === 0 ? "#10B981" : total <= 3 ? "#F59E0B" : total <= 8 ? "#F97316" : "#EF4444";
 
   return (
@@ -343,8 +273,8 @@ function SpotsModal({
           {/* Header */}
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalTitle}>Spot Analysis</Text>
-              <Text style={styles.modalSub}>Latest scan results</Text>
+              <Text style={styles.modalTitle}>{t("home.spotAnalysis")}</Text>
+              <Text style={styles.modalSub}>{t("home.latestResults")}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.modalClose}>
               <X size={18} color="#6B7280" />
@@ -354,7 +284,7 @@ function SpotsModal({
           {/* Hero count */}
           <LinearGradient colors={["#FFF1F4", "#FFF8FA"]} style={styles.modalHeroBox}>
             <Text style={styles.modalHeroNum}>{total}</Text>
-            <Text style={styles.modalHeroLbl}>Total Spots</Text>
+            <Text style={styles.modalHeroLbl}>{t("home.totalSpots")}</Text>
             <View style={[styles.severityPill, { backgroundColor: severityColor + "20" }]}>
               <View style={[styles.severityDot, { backgroundColor: severityColor }]} />
               <Text style={[styles.severityText, { color: severityColor }]}>{severity}</Text>
@@ -365,7 +295,7 @@ function SpotsModal({
           {latestScan?.image_uri && latestScan.detections?.length > 0 && (
             <View style={styles.modalPhotoWrap}>
               <Text style={styles.modalPhotoLabel}>
-                Last scan · {new Date(latestScan.scan_date).toLocaleDateString()}
+                {t("home.lastScan", { date: new Date(latestScan.scan_date).toLocaleDateString() })}
               </Text>
               <AnnotatedSkinImage
                 imageUri={latestScan.image_uri}
@@ -376,7 +306,7 @@ function SpotsModal({
                 showLabels={false}
               />
               <Text style={styles.modalPhotoHint}>
-                {latestScan.detections.length} spot{latestScan.detections.length === 1 ? "" : "s"} detected · colored markers show location &amp; type
+                {t("home.spotsDetected", { n: String(latestScan.detections.length), s: latestScan.detections.length === 1 ? "" : "s" })}
               </Text>
             </View>
           )}
@@ -384,7 +314,7 @@ function SpotsModal({
           {/* Breakdown chart */}
           {hasBreakdown ? (
             <View style={styles.breakdownSection}>
-              <Text style={styles.breakdownTitle}>Breakdown by Type</Text>
+              <Text style={styles.breakdownTitle}>{t("home.breakdownByType")}</Text>
               {(Object.keys(ACNE_META) as AcneType[]).map((type) => {
                 const count = breakdown![type] ?? 0;
                 const meta = ACNE_META[type];
@@ -392,8 +322,8 @@ function SpotsModal({
                 return (
                   <View key={type} style={styles.breakdownRow}>
                     <View style={styles.breakdownLeft}>
-                      <Text style={styles.breakdownLabel}>{meta.label}</Text>
-                      <Text style={styles.breakdownDesc}>{meta.desc}</Text>
+                      <Text style={styles.breakdownLabel}>{t(meta.labelKey)}</Text>
+                      <Text style={styles.breakdownDesc}>{t(meta.descKey)}</Text>
                     </View>
                     <View style={styles.breakdownBar}>
                       <View style={[styles.breakdownFill, { width: `${pct * 100}%` as any, backgroundColor: meta.color }]} />
@@ -406,8 +336,8 @@ function SpotsModal({
           ) : (
             <View style={styles.noDataBox}>
               <Text style={styles.noDataEmoji}>📸</Text>
-              <Text style={styles.noDataText}>No spot data yet</Text>
-              <Text style={styles.noDataSub}>Do your first face scan to see breakdown</Text>
+              <Text style={styles.noDataText}>{t("home.noSpotData")}</Text>
+              <Text style={styles.noDataSub}>{t("home.noSpotDataSub")}</Text>
             </View>
           )}
 
@@ -416,7 +346,7 @@ function SpotsModal({
             onPress={() => { onClose(); router.push("/(tabs)/report"); }}
           >
             <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.modalCtaGrad}>
-              <Text style={styles.modalCtaText}>View Full Report</Text>
+              <Text style={styles.modalCtaText}>{t("home.viewFullReport")}</Text>
               <ChevronRight size={14} color="#fff" />
             </LinearGradient>
           </TouchableOpacity>
@@ -428,11 +358,11 @@ function SpotsModal({
 
 // ─── Mood Picker Modal ───────────────────────────────────────
 const MOODS = [
-  { emoji: "😞", label: "Bad",     color: "#EF4444" },
-  { emoji: "😐", label: "Meh",     color: "#F97316" },
-  { emoji: "🙂", label: "Okay",    color: "#F59E0B" },
-  { emoji: "😊", label: "Good",    color: "#10B981" },
-  { emoji: "🤩", label: "Amazing", color: "#F472B6" },
+  { emoji: "😞", labelKey: "home.mood.bad",     id: "Bad",     color: "#EF4444" },
+  { emoji: "😐", labelKey: "home.mood.meh",     id: "Meh",     color: "#F97316" },
+  { emoji: "🙂", labelKey: "home.mood.okay",    id: "Okay",    color: "#F59E0B" },
+  { emoji: "😊", labelKey: "home.mood.good",    id: "Good",    color: "#10B981" },
+  { emoji: "🤩", labelKey: "home.mood.amazing", id: "Amazing", color: "#F472B6" },
 ];
 
 function MoodModal({
@@ -444,6 +374,7 @@ function MoodModal({
   onClose: () => void;
   onPick: (mood: string) => void;
 }) {
+  const { t } = useT();
   const [selected, setSelected] = useState<string | null>(null);
 
   return (
@@ -453,8 +384,8 @@ function MoodModal({
           <View style={styles.modalHandle} />
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalTitle}>How's your skin today?</Text>
-              <Text style={styles.modalSub}>Tap to rate · earns +10 pts</Text>
+              <Text style={styles.modalTitle}>{t("home.moodTitle")}</Text>
+              <Text style={styles.modalSub}>{t("home.moodSub")}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.modalClose}>
               <X size={18} color="#6B7280" />
@@ -463,16 +394,16 @@ function MoodModal({
 
           <View style={styles.moodRow}>
             {MOODS.map((m) => {
-              const active = selected === m.label;
+              const active = selected === m.id;
               return (
                 <TouchableOpacity
-                  key={m.label}
-                  onPress={() => setSelected(m.label)}
+                  key={m.id}
+                  onPress={() => setSelected(m.id)}
                   style={[styles.moodBtn, active && { backgroundColor: m.color + "20", borderColor: m.color, borderWidth: 2 }]}
                   activeOpacity={0.7}
                 >
                   <Text style={styles.moodEmoji}>{m.emoji}</Text>
-                  <Text style={[styles.moodLabel, active && { color: m.color, fontWeight: "700" }]}>{m.label}</Text>
+                  <Text style={[styles.moodLabel, active && { color: m.color, fontWeight: "700" }]}>{t(m.labelKey)}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -485,7 +416,7 @@ function MoodModal({
           >
             <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.modalCtaGrad}>
               <Star size={14} color="#fff" />
-              <Text style={styles.modalCtaText}>Save & earn 10 pts</Text>
+              <Text style={styles.modalCtaText}>{t("home.moodSave")}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </Pressable>
@@ -496,7 +427,8 @@ function MoodModal({
 
 // ─── Daily Tip Modal ─────────────────────────────────────────
 function TipModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const tip = getTodayTip();
+  const { t } = useT();
+  const tip = getTodayTip(t);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <Pressable style={styles.modalOverlay} onPress={onClose}>
@@ -504,8 +436,8 @@ function TipModal({ visible, onClose }: { visible: boolean; onClose: () => void 
           <View style={styles.modalHandle} />
           <View style={styles.modalHeader}>
             <View>
-              <Text style={styles.modalTitle}>Today's Skin Tip 💡</Text>
-              <Text style={styles.modalSub}>Earn +5 pts for reading</Text>
+              <Text style={styles.modalTitle}>{t("home.tipTitle")}</Text>
+              <Text style={styles.modalSub}>{t("home.tipSub")}</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={styles.modalClose}>
               <X size={18} color="#6B7280" />
@@ -520,7 +452,7 @@ function TipModal({ visible, onClose }: { visible: boolean; onClose: () => void 
           <TouchableOpacity onPress={onClose} style={styles.modalCta}>
             <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.modalCtaGrad}>
               <CheckCircle size={14} color="#fff" />
-              <Text style={styles.modalCtaText}>Got it! +5 pts</Text>
+              <Text style={styles.modalCtaText}>{t("home.tipGotIt")}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </Pressable>
@@ -539,6 +471,7 @@ interface InsightData {
 }
 
 function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; isVip: boolean }) {
+  const { t } = useT();
   if (!insight) return null;
   const hasImproved = (insight.score_change ?? 0) > 0;
   const hasDeclined = (insight.score_change ?? 0) < 0;
@@ -550,10 +483,10 @@ function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; is
           <Sparkles size={18} color="#F472B6" />
         </LinearGradient>
         <View style={styles.insightTitleWrap}>
-          <Text style={styles.insightTitle}>Weekly Insight</Text>
+          <Text style={styles.insightTitle}>{t("home.weeklyInsight")}</Text>
           {!isVip && (
             <View style={styles.freePill}>
-              <Text style={styles.freePillText}>✓ Free</Text>
+              <Text style={styles.freePillText}>{t("home.free")}</Text>
             </View>
           )}
         </View>
@@ -570,7 +503,7 @@ function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; is
         <View style={styles.insightStats}>
           <View style={styles.insightStat}>
             <Text style={styles.insightStatVal}>{insight.avg_score_this_week}</Text>
-            <Text style={styles.insightStatLbl}>Avg score</Text>
+            <Text style={styles.insightStatLbl}>{t("home.avgScore")}</Text>
           </View>
           {insight.score_change !== null && (
             <View style={styles.insightStat}>
@@ -580,19 +513,19 @@ function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; is
                   {insight.score_change > 0 ? "+" : ""}{insight.score_change}
                 </Text>
               </View>
-              <Text style={styles.insightStatLbl}>vs last week</Text>
+              <Text style={styles.insightStatLbl}>{t("home.vsLastWeek")}</Text>
             </View>
           )}
           <View style={styles.insightStat}>
             <Text style={styles.insightStatVal}>{insight.scans_this_week}</Text>
-            <Text style={styles.insightStatLbl}>Scans</Text>
+            <Text style={styles.insightStatLbl}>{t("home.scans")}</Text>
           </View>
         </View>
       )}
 
       {!isVip && (
         <TouchableOpacity onPress={() => router.push("/vip")} style={styles.insightCta}>
-          <Text style={styles.insightCtaText}>Unlock full report → VIP ✦</Text>
+          <Text style={styles.insightCtaText}>{t("home.unlockFullReport")}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -601,6 +534,7 @@ function WeeklyInsightCard({ insight, isVip }: { insight: InsightData | null; is
 
 // ─── Main Screen ──────────────────────────────────────────────
 export default function HomeScreen() {
+  const { t } = useT();
   const { colors: C, shadow: S, isDark, gradients: G } = useAppTheme();
   const [stats, setStats] = useState<StatsResult | null>(null);
   const [userName, setUserName] = useState("");
@@ -744,9 +678,9 @@ export default function HomeScreen() {
           <View style={styles.header}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.greeting, isDark && { color: C.gray900 }]}>
-                {getGreeting(userName || (isGuest ? "" : ""))} ✨
+                {getGreeting(userName || (isGuest ? "" : ""), t)} ✨
               </Text>
-              <Text style={[styles.dayMessage, isDark && { color: C.gray400 }]}>{getDayMessage()}</Text>
+              <Text style={[styles.dayMessage, isDark && { color: C.gray400 }]}>{getDayMessage(t)}</Text>
             </View>
             <View style={styles.headerRight}>
               {/* Only show Sign In for actual guests (not registered, not VIP) */}
@@ -756,7 +690,7 @@ export default function HomeScreen() {
                   style={[styles.signInBtn, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}
                 >
                   <User size={13} color={Colors.rose400} />
-                  <Text style={[styles.signInText, isDark && { color: C.gray400 }]}>Sign In</Text>
+                  <Text style={[styles.signInText, isDark && { color: C.gray400 }]}>{t("common.signIn")}</Text>
                 </TouchableOpacity>
               )}
               <LinearGradient
@@ -765,26 +699,28 @@ export default function HomeScreen() {
               >
                 <FlameIcon streak={streak} />
                 <Text style={[styles.streakText, streak >= 30 && { color: "#DC2626" }, streak >= 7 && streak < 30 && { color: "#EA580C" }]}>
-                  {streak}d streak
+                  {t("home.streak", { n: String(streak) })}
                 </Text>
               </LinearGradient>
             </View>
           </View>
 
           {/* ── Skin Score Hero ── */}
-          <SkinScoreHero
-            score={skinScore}
-            todayPts={displayTodayPts}
-            totalPts={totalPts}
-            scoreChange={scoreChange}
-          />
+          <FadeInComponent delay={100} duration={400} from="bottom">
+            <SkinScoreHero
+              score={skinScore}
+              todayPts={displayTodayPts}
+              totalPts={totalPts}
+              scoreChange={scoreChange}
+            />
+          </FadeInComponent>
 
           {/* ── Daily Check-in（隐藏式：默认收起，点击展开） ── */}
           {(() => {
-            const mainDone = (faceDone ? 1 : 0) + (bodyDone ? 1 : 0);
+            const mainDone = faceDone ? 1 : 0; // body hidden for now
             const extraDoneCount = Object.values(extraDone).filter(Boolean).length;
             const totalExtra = EXTRA_TASKS.length;
-            const allMainDone = faceDone && bodyDone;
+            const allMainDone = faceDone; // body hidden for now
             return (
           <View style={[styles.card, styles.checkinCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
             <TouchableOpacity
@@ -797,13 +733,13 @@ export default function HomeScreen() {
               style={styles.checkinHeaderRow}
             >
               <View style={{ flex: 1 }}>
-                <Text style={[styles.cardTitle, isDark && { color: C.gray900 }]}>Daily Check-in</Text>
+                <Text style={[styles.cardTitle, isDark && { color: C.gray900 }]}>{t("home.dailyCheckin")}</Text>
                 {/* 折叠态摘要行：一眼看完成进度 */}
                 {!checkinExpanded && (
                   <Text style={[styles.checkinSummary, isDark && { color: C.gray400 }]}>
-                    {allMainDone ? "✓ Done today" : `${mainDone}/2 main`}
-                    {totalExtra > 0 ? ` · ${extraDoneCount}/${totalExtra} bonus` : ""}
-                    {" · "}{displayTodayPts} pts
+                    {allMainDone ? t("home.doneToday") : t("home.mainProgress", { done: String(mainDone) })}
+                    {totalExtra > 0 ? ` · ${t("home.bonusProgress", { done: String(extraDoneCount), total: String(totalExtra) })}` : ""}
+                    {" · "}{displayTodayPts} {t("home.pts")}
                   </Text>
                 )}
               </View>
@@ -815,15 +751,15 @@ export default function HomeScreen() {
             </TouchableOpacity>
             {checkinExpanded && (
               <View style={styles.cardHeader}>
-                <Text style={[styles.cardHeaderPts, isDark && { color: C.gray500 }]}>{displayTodayPts} pts today</Text>
+                <Text style={[styles.cardHeaderPts, isDark && { color: C.gray500 }]}>{t("home.ptsToday", { pts: String(displayTodayPts) })}</Text>
               </View>
             )}
 
             {checkinExpanded && (
             <>
 
-            {/* 两项都完成时的庆祝横幅 */}
-            {faceDone && bodyDone && (
+            {/* 完成时的庆祝横幅 */}
+            {faceDone && (
               <LinearGradient
                 colors={["#10B981", "#34D399"]}
                 start={{ x: 0, y: 0 }}
@@ -832,9 +768,9 @@ export default function HomeScreen() {
               >
                 <Text style={styles.celebrateEmoji}>🎉</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.celebrateTitle}>Daily check-in complete!</Text>
+                  <Text style={styles.celebrateTitle}>{t("home.checkinComplete")}</Text>
                   <Text style={styles.celebrateSub}>
-                    +100 pts earned · streak protected today
+                    {t("home.checkinReward")}
                   </Text>
                 </View>
                 <Text style={styles.celebrateCheck}>✓</Text>
@@ -852,24 +788,24 @@ export default function HomeScreen() {
               )}
               <View style={styles.taskInfo}>
                 <Text style={[styles.taskName, faceDone && styles.taskNameDone, isDark && { color: C.gray900 }]}>
-                  {faceDone ? "Face checked in ✓" : "How's your skin today?"}
+                  {faceDone ? t("home.faceChecked") : t("home.howsSkin")}
                 </Text>
-                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>+50 pts · 30-second face scan</Text>
+                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>{t("home.faceScanSub")}</Text>
               </View>
               {faceDone ? (
                 <CheckCircle size={22} color="#10B981" />
               ) : (
-                <TouchableOpacity onPress={() => router.push("/(tabs)/camera")}>
+                <AnimatedPressable onPress={() => router.push("/(tabs)/camera")} scaleAmount={0.93}>
                   <LinearGradient colors={["#F43F8F", "#FB7185"]} style={styles.scanBtn}>
-                    <Text style={styles.scanBtnText}>Scan</Text>
+                    <Text style={styles.scanBtnText}>{t("common.scan")}</Text>
                   </LinearGradient>
-                </TouchableOpacity>
+                </AnimatedPressable>
               )}
             </View>
 
             <View style={styles.taskDivider} />
 
-            {/* Body Task */}
+            {/* ── Body Task 暂时隐藏 ──
             <View style={styles.taskRow}>
               {yesterdayBody ? (
                 <Image source={{ uri: yesterdayBody }} style={styles.taskThumb} />
@@ -889,13 +825,14 @@ export default function HomeScreen() {
               ) : (
                 <TouchableOpacity onPress={() => router.push("/(tabs)/camera")}>
                   <LinearGradient colors={["#F43F8F", "#FB7185"]} style={styles.scanBtn}>
-                    <Text style={styles.scanBtnText}>Scan</Text>
+                    <Text style={styles.scanBtnText}>{t("common.scan")}</Text>
                   </LinearGradient>
                 </TouchableOpacity>
               )}
             </View>
 
             <View style={styles.taskDivider} />
+            ── end hidden body task ── */}
 
             {/* Extra in-app interactive tasks */}
             {EXTRA_TASKS.map((task, idx) => {
@@ -924,7 +861,7 @@ export default function HomeScreen() {
                     <View style={styles.taskInfo}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Text style={[styles.taskName, done && styles.taskNameDone, locked && styles.taskNameLocked, isDark && { color: C.gray900 }]}>
-                          {task.label}
+                          {t(task.labelKey)}
                         </Text>
                         {task.vip && (
                           <View style={[styles.vipBadge, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}>
@@ -933,7 +870,7 @@ export default function HomeScreen() {
                         )}
                       </View>
                       <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>
-                        {locked ? `${task.sub} · VIP exclusive` : task.sub}
+                        {locked ? `${t(task.subKey)} · ${t("home.vipExclusive")}` : t(task.subKey)}
                       </Text>
                     </View>
 
@@ -946,14 +883,14 @@ export default function HomeScreen() {
                         style={styles.unlockBtn}
                       >
                         <Lock size={11} color="#7C3AED" />
-                        <Text style={styles.unlockBtnText}>Unlock</Text>
+                        <Text style={styles.unlockBtnText}>{t("common.unlock")}</Text>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
                         onPress={() => handleExtraTaskAction(task)}
                         style={styles.actionBtn}
                       >
-                        <Text style={styles.actionBtnText}>{task.btnLabel}</Text>
+                        <Text style={styles.actionBtnText}>{t(task.btnLabelKey)}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -967,8 +904,11 @@ export default function HomeScreen() {
             );
           })()}
 
+          {/* ── 广告横幅（仅免费用户） ── */}
+          <AdBanner style={{ marginBottom: 4 }} />
+
           {/* ── Today's Stats Row ── */}
-          <Text style={[styles.todayLabel, isDark && { color: C.gray500 }]}>Today</Text>
+          <Text style={[styles.todayLabel, isDark && { color: C.gray500 }]}>{t("home.todayLabel")}</Text>
           {todayScans === 0 ? (
             <TouchableOpacity
               style={styles.todayCta}
@@ -981,16 +921,16 @@ export default function HomeScreen() {
               >
                 <CameraIcon size={20} color={Colors.rose400} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.todayCtaTitle, isDark && { color: C.gray900 }]}>No scan yet today</Text>
+                  <Text style={[styles.todayCtaTitle, isDark && { color: C.gray900 }]}>{t("home.noScanToday")}</Text>
                   <Text style={[styles.todayCtaSub, isDark && { color: C.gray400 }]}>
-                    Take a quick photo to update your daily stats
+                    {t("home.noScanTodaySub")}
                   </Text>
                 </View>
                 <ChevronRight size={16} color={Colors.rose400} />
               </LinearGradient>
             </TouchableOpacity>
           ) : (
-            <View style={styles.statsRow}>
+            <StaggeredList stagger={80} style={styles.statsRow} itemStyle={{ flex: 1 }}>
               {/* Spots — opens detail modal */}
               <TouchableOpacity
                 style={[styles.statCard, styles.statSpots, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}
@@ -1001,7 +941,7 @@ export default function HomeScreen() {
                 <Text style={[styles.statVal, { color: "#FB7185" }]}>
                   {todaySpots ?? "--"}
                 </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Spots</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>{t("home.spots")}</Text>
                 <ChevronRight size={10} color="#FB7185" style={{ marginTop: 2 }} />
               </TouchableOpacity>
 
@@ -1015,7 +955,7 @@ export default function HomeScreen() {
                 <Text style={[styles.statVal, { color: "#F472B6" }]}>
                   {todayScore ?? "--"}
                 </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Skin Score</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>{t("home.skinScore")}</Text>
                 <ChevronRight size={10} color="#F472B6" style={{ marginTop: 2 }} />
               </TouchableOpacity>
 
@@ -1029,49 +969,55 @@ export default function HomeScreen() {
                 <Text style={[styles.statVal, { color: "#10B981" }]}>
                   {todayScans}
                 </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>Scans</Text>
+                <Text style={[styles.statLbl, isDark && { color: C.gray500 }]}>{t("home.scans")}</Text>
                 <ChevronRight size={10} color="#10B981" style={{ marginTop: 2 }} />
               </TouchableOpacity>
-            </View>
+            </StaggeredList>
           )}
 
           {/* ── Weekly Insight ── */}
-          <WeeklyInsightCard insight={insight} isVip={isVip} />
+          <FadeInComponent delay={300} duration={400} from="bottom">
+            <WeeklyInsightCard insight={insight} isVip={isVip} />
+          </FadeInComponent>
 
           {/* ── AI Daily Advice ── */}
-          <TouchableOpacity
-            onPress={() => router.push("/chat")}
-            activeOpacity={0.85}
-          >
-            <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFF5FB"]} style={[styles.aiCard, isDark && { borderColor: C.gray200 }]}>
-              <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.aiAvatarGrad}>
-                <Sparkles size={16} color="#fff" />
-              </LinearGradient>
-              <View style={styles.aiInfo}>
-                <View style={styles.aiTitleRow}>
-                  <Text style={[styles.aiTitle, isDark && { color: C.gray900 }]}>AI Skin Advisor</Text>
-                  <View style={styles.aiLivePill}>
-                    <Text style={styles.aiLiveDot}>●</Text>
-                    <Text style={styles.aiLiveText}>Live</Text>
+          <FadeInComponent delay={400} duration={400} from="bottom">
+            <TouchableOpacity
+              onPress={() => router.push("/chat")}
+              activeOpacity={0.85}
+            >
+              <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFF5FB"]} style={[styles.aiCard, isDark && { borderColor: C.gray200 }]}>
+                <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.aiAvatarGrad}>
+                  <Sparkles size={16} color="#fff" />
+                </LinearGradient>
+                <View style={styles.aiInfo}>
+                  <View style={styles.aiTitleRow}>
+                    <Text style={[styles.aiTitle, isDark && { color: C.gray900 }]}>{t("home.aiAdvisor")}</Text>
+                    <View style={styles.aiLivePill}>
+                      <Text style={styles.aiLiveDot}>●</Text>
+                      <Text style={styles.aiLiveText}>{t("home.aiLive")}</Text>
+                    </View>
                   </View>
+                  <Text style={[styles.aiSub, isDark && { color: C.gray400 }]} numberOfLines={2}>
+                    {dailyAdvice || t("home.aiDefault")}
+                  </Text>
                 </View>
-                <Text style={[styles.aiSub, isDark && { color: C.gray400 }]} numberOfLines={2}>
-                  {dailyAdvice || "Tap to get personalized advice from your AI consultant"}
-                </Text>
-              </View>
-              <ChevronRight size={16} color={Colors.rose400} />
-            </LinearGradient>
-          </TouchableOpacity>
+                <ChevronRight size={16} color={Colors.rose400} />
+              </LinearGradient>
+            </TouchableOpacity>
+          </FadeInComponent>
 
           {/* ── Guest banner ── */}
           {isGuest && (
-            <TouchableOpacity onPress={() => router.push("/(tabs)/profile")} activeOpacity={0.85}>
-              <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFE4E6"]} style={[styles.guestBanner, isDark && { borderWidth: 1, borderColor: C.gray200 }]}>
-                <User size={13} color={Colors.rose400} />
-                <Text style={[styles.guestText, isDark && { color: C.gray400 }]}>Sign up to sync your data across devices</Text>
-                <Text style={[styles.guestArrow, isDark && { color: C.gray400 }]}>→</Text>
-              </LinearGradient>
-            </TouchableOpacity>
+            <FadeInComponent delay={500} duration={400} from="bottom">
+              <TouchableOpacity onPress={() => router.push("/(tabs)/profile")} activeOpacity={0.85}>
+                <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFE4E6"]} style={[styles.guestBanner, isDark && { borderWidth: 1, borderColor: C.gray200 }]}>
+                  <User size={13} color={Colors.rose400} />
+                  <Text style={[styles.guestText, isDark && { color: C.gray400 }]}>{t("home.guestBanner")}</Text>
+                  <Text style={[styles.guestArrow, isDark && { color: C.gray400 }]}>→</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </FadeInComponent>
           )}
 
         </ScrollView>

@@ -26,6 +26,10 @@ import {
   Check,
   Sparkles,
   Lock,
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  ArrowRight,
 } from "lucide-react-native";
 import { useUser } from "../../lib/userContext";
 import {
@@ -80,6 +84,9 @@ export default function ScanDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
 
+  // 对比上次扫描
+  const [prevScan, setPrevScan] = useState<ScanRecord | null>(null);
+
   // 皮肤日记相关状态
   const [diaryNote, setDiaryNote] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -93,12 +100,20 @@ export default function ScanDetailScreen() {
   async function loadScan() {
     try {
       const userId = await getUserId();
-      const scans = await getRecentScans(userId, 30);
+      const scans = await getRecentScans(userId, 60);
+      // scans 按 scan_date 降序（最近在前）
       const found = scans.find((s) => s._id === id);
       setScan(found ?? null);
 
-      // 如果已有日记记录，预填充进输入框
+      // 找到上一次扫描用于对比
       if (found) {
+        const idx = scans.indexOf(found);
+        // idx+1 即为比当前更早的那条记录
+        if (idx >= 0 && idx + 1 < scans.length) {
+          setPrevScan(scans[idx + 1]);
+        }
+
+        // 如果已有日记记录，预填充进输入框
         setDiaryNote((found as any).diary_note ?? "");
         setSelectedTags((found as any).diary_tags ?? []);
         if (
@@ -497,6 +512,173 @@ export default function ScanDetailScreen() {
               </View>
             )}
 
+            {/* ─── 对比上次扫描卡片 ─── */}
+            {prevScan && (
+              <View style={[styles.card, Shadow.card, styles.compareCard]}>
+                <View style={styles.compareHeader}>
+                  <Text style={styles.cardTitle}>vs Previous Scan</Text>
+                  <Text style={styles.compareDateLabel}>
+                    {new Date(prevScan.scan_date).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </Text>
+                </View>
+
+                {/* 分数 + 斑点数量对比 */}
+                <View style={styles.compareMetrics}>
+                  {/* Score delta */}
+                  {(() => {
+                    const delta = scan.skin_score - prevScan.skin_score;
+                    const improved = delta > 0;
+                    const same = delta === 0;
+                    return (
+                      <View style={styles.compareMetric}>
+                        <Text style={styles.compareMetricLabel}>Score</Text>
+                        <View style={styles.compareDeltaRow}>
+                          {same ? (
+                            <Minus size={14} color={Colors.gray400} />
+                          ) : improved ? (
+                            <TrendingUp size={14} color={Colors.emerald} />
+                          ) : (
+                            <TrendingDown size={14} color={Colors.red} />
+                          )}
+                          <Text
+                            style={[
+                              styles.compareDeltaText,
+                              {
+                                color: same
+                                  ? Colors.gray500
+                                  : improved
+                                    ? Colors.emerald
+                                    : Colors.red,
+                              },
+                            ]}
+                          >
+                            {same
+                              ? "No change"
+                              : `${improved ? "+" : ""}${delta}`}
+                          </Text>
+                        </View>
+                        <Text style={styles.compareFromTo}>
+                          {prevScan.skin_score} → {scan.skin_score}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+
+                  {/* Spots delta */}
+                  {(() => {
+                    const delta =
+                      scan.total_count - prevScan.total_count;
+                    const improved = delta < 0; // fewer spots = better
+                    const same = delta === 0;
+                    return (
+                      <View style={styles.compareMetric}>
+                        <Text style={styles.compareMetricLabel}>Spots</Text>
+                        <View style={styles.compareDeltaRow}>
+                          {same ? (
+                            <Minus size={14} color={Colors.gray400} />
+                          ) : improved ? (
+                            <TrendingDown size={14} color={Colors.emerald} />
+                          ) : (
+                            <TrendingUp size={14} color={Colors.red} />
+                          )}
+                          <Text
+                            style={[
+                              styles.compareDeltaText,
+                              {
+                                color: same
+                                  ? Colors.gray500
+                                  : improved
+                                    ? Colors.emerald
+                                    : Colors.red,
+                              },
+                            ]}
+                          >
+                            {same
+                              ? "No change"
+                              : `${delta > 0 ? "+" : ""}${delta}`}
+                          </Text>
+                        </View>
+                        <Text style={styles.compareFromTo}>
+                          {prevScan.total_count} → {scan.total_count}
+                        </Text>
+                      </View>
+                    );
+                  })()}
+                </View>
+
+                {/* 各类型对比 */}
+                {scan.total_count > 0 || prevScan.total_count > 0 ? (
+                  <View style={styles.compareTypeGrid}>
+                    {acneTypes.map((item) => {
+                      const prevBreakdown = prevScan.detections.reduce(
+                        (acc, d) => {
+                          acc[d.acne_type] = (acc[d.acne_type] ?? 0) + 1;
+                          return acc;
+                        },
+                        {} as Record<string, number>,
+                      );
+                      const cur = breakdown[item.key] ?? 0;
+                      const prev = prevBreakdown[item.key] ?? 0;
+                      const d = cur - prev;
+                      if (cur === 0 && prev === 0) return null;
+                      return (
+                        <View key={item.key} style={styles.compareTypeRow}>
+                          <View
+                            style={[
+                              styles.acneDot,
+                              { backgroundColor: item.color },
+                            ]}
+                          />
+                          <Text style={styles.compareTypeLabel}>
+                            {item.label}
+                          </Text>
+                          <Text style={styles.compareTypeFromTo}>
+                            {prev}
+                          </Text>
+                          <ArrowRight size={10} color={Colors.gray300} />
+                          <Text style={styles.compareTypeFromTo}>{cur}</Text>
+                          {d !== 0 && (
+                            <Text
+                              style={[
+                                styles.compareTypeDelta,
+                                {
+                                  color:
+                                    d < 0 ? Colors.emerald : Colors.red,
+                                },
+                              ]}
+                            >
+                              {d > 0 ? `+${d}` : `${d}`}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+
+                {/* 跳转到上次扫描 */}
+                <TouchableOpacity
+                  onPress={() =>
+                    router.push(`/scan/${prevScan._id}` as any)
+                  }
+                  activeOpacity={0.7}
+                  style={styles.compareLinkBtn}
+                >
+                  <Text style={styles.compareLinkText}>
+                    View previous scan
+                  </Text>
+                  <ChevronLeft
+                    size={14}
+                    color={Colors.rose400}
+                    style={{ transform: [{ rotate: "180deg" }] }}
+                  />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* AI 建议卡片：规则驱动，免费用户也能看到 */}
             <View style={[styles.card, Shadow.card, styles.aiSuggestCard]}>
               <View style={styles.aiSuggestHeader}>
@@ -815,6 +997,96 @@ const styles = StyleSheet.create({
   acneDot: { width: 12, height: 12, borderRadius: 6 },
   acneLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.gray600 },
   acneCount: { fontSize: FontSize.sm, fontWeight: "700" },
+
+  // ─── 对比卡片样式 ───
+  compareCard: {
+    borderWidth: 1,
+    borderColor: "#E0E7FF",
+    backgroundColor: "#FAFBFF",
+  },
+  compareHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  compareDateLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    fontWeight: "500",
+  },
+  compareMetrics: {
+    flexDirection: "row",
+    gap: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  compareMetric: {
+    flex: 1,
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    alignItems: "center",
+  },
+  compareMetricLabel: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+    fontWeight: "500",
+    marginBottom: 4,
+  },
+  compareDeltaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginBottom: 2,
+  },
+  compareDeltaText: {
+    fontSize: FontSize.lg,
+    fontWeight: "700",
+  },
+  compareFromTo: {
+    fontSize: FontSize.xs,
+    color: Colors.gray400,
+  },
+  compareTypeGrid: {
+    gap: 6,
+    marginBottom: Spacing.md,
+  },
+  compareTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+  compareTypeLabel: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.gray600,
+  },
+  compareTypeFromTo: {
+    fontSize: FontSize.xs,
+    color: Colors.gray500,
+    fontWeight: "600",
+    width: 20,
+    textAlign: "center",
+  },
+  compareTypeDelta: {
+    fontSize: FontSize.xs,
+    fontWeight: "700",
+    width: 28,
+    textAlign: "right",
+  },
+  compareLinkBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 8,
+  },
+  compareLinkText: {
+    fontSize: FontSize.xs,
+    color: Colors.rose400,
+    fontWeight: "600",
+  },
 
   // 皮肤日记样式
   diaryHeader: {

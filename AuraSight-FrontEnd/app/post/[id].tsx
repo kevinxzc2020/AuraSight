@@ -8,21 +8,25 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
+  Modal,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useLocalSearchParams } from "expo-router";
+import { AdBanner } from "../../lib/ads";
 import {
-  ChevronLeft, Heart, Send, Trash2, BadgeCheck, Pin,
+  ChevronLeft, Heart, Send, Trash2, BadgeCheck, Pin, ImagePlus, X,
 } from "lucide-react-native";
+import * as ImagePicker from "expo-image-picker";
 import { Colors, Spacing, FontSize, Radius } from "../../constants/theme";
 import { useAppTheme } from "../../lib/themeContext";
 import { useUser } from "../../lib/userContext";
 import { useT } from "../../lib/i18n";
+import { LoadingSkeleton, EmptyState } from "../../lib/StateViews";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:3000";
@@ -56,6 +60,7 @@ interface Comment {
   author_id: string;
   author_name: string;
   content: string;
+  image_url?: string;
   created_at: string;
 }
 
@@ -72,10 +77,11 @@ function initial(name: string) {
 }
 
 // ─── 评论条 ──────────────────────────────────────────────
-function CommentRow({ c, isDark, C, t }: {
+function CommentRow({ c, isDark, C, onImagePress, t }: {
   c: Comment;
   isDark: boolean;
   C: ReturnType<typeof useAppTheme>["colors"];
+  onImagePress: (uri: string) => void;
   t: (k: string) => string;
 }) {
   return (
@@ -88,7 +94,12 @@ function CommentRow({ c, isDark, C, t }: {
           <Text style={[st.commentName, isDark && { color: C.gray900 }]}>{c.author_name}</Text>
           <Text style={[st.commentTime, isDark && { color: C.gray400 }]}>{timeAgo(c.created_at, t)}</Text>
         </View>
-        <Text style={[st.commentContent, isDark && { color: C.gray700 }]}>{c.content}</Text>
+        {!!c.content && <Text style={[st.commentContent, isDark && { color: C.gray700 }]}>{c.content}</Text>}
+        {!!c.image_url && (
+          <TouchableOpacity onPress={() => onImagePress(c.image_url!)} activeOpacity={0.9}>
+            <Image source={{ uri: c.image_url }} style={st.commentImg} resizeMode="cover" />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -106,8 +117,10 @@ export default function PostDetailScreen() {
   const [loading, setLoading]   = useState(true);
   const [text, setText]         = useState("");
   const [sending, setSending]   = useState(false);
+  const [commentImg, setCommentImg] = useState<{ uri: string; base64: string } | null>(null);
   const [myName, setMyName]     = useState("Anonymous");
   const [myId, setMyId]         = useState("guest");
+  const [lightboxUri, setLightboxUri] = useState<string | null>(null);
   const inputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -129,6 +142,13 @@ export default function PostDetailScreen() {
         fetch(`${API_URL}/posts/${id}`),
         fetch(`${API_URL}/posts/${id}/comments`),
       ]);
+      if (postRes.status === 404) {
+        Alert.alert("Error", t("community.notFound"));
+        setLoading(false);
+        return;
+      }
+      if (!postRes.ok) throw new Error(`Post fetch failed: ${postRes.status}`);
+      if (!commentRes.ok) throw new Error(`Comments fetch failed: ${commentRes.status}`);
       setPost(await postRes.json());
       setComments(await commentRes.json());
     } catch {
@@ -172,19 +192,37 @@ export default function PostDetailScreen() {
     ]);
   }
 
+  async function pickCommentImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") { Alert.alert("🖼️", "Please allow photo access."); return; } // TODO: Add i18n key for permission alert
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true, quality: 0.6, base64: true,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const a = result.assets[0];
+      setCommentImg({ uri: a.uri, base64: a.base64 ?? "" });
+    }
+  }
+
   async function sendComment() {
-    if (!text.trim()) return;
+    if (!text.trim() && !commentImg) return;
     setSending(true);
     try {
       const r = await fetch(`${API_URL}/posts/${id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ author_id: myId, author_name: myName, content: text.trim() }),
+        body: JSON.stringify({
+          author_id: myId, author_name: myName,
+          content: text.trim(),
+          image_base64: commentImg?.base64 ?? undefined,
+        }),
       });
       const c: Comment = await r.json();
       setComments(prev => [...prev, c]);
       setPost(p => p ? { ...p, comment_count: p.comment_count + 1 } : p);
       setText("");
+      setCommentImg(null);
     } catch {
       Alert.alert("Error", t("community.errorSend"));
     }
@@ -194,15 +232,23 @@ export default function PostDetailScreen() {
   if (loading) {
     return (
       <View style={[st.root, { backgroundColor: isDark ? C.background : "#fff" }]}>
-        <ActivityIndicator size="large" color={Colors.rose400} style={{ marginTop: 120 }} />
+        <LoadingSkeleton variant="fullscreen" />
       </View>
     );
   }
 
   if (!post) {
     return (
-      <View style={[st.root, { backgroundColor: isDark ? C.background : "#fff", alignItems: "center", justifyContent: "center" }]}>
-        <Text style={{ color: C.gray400 }}>{t("community.notFound")}</Text>
+      <View style={[st.root, { backgroundColor: isDark ? C.background : "#fff" }]}>
+        <SafeAreaView style={{ flex: 1 }} edges={["top"]}>
+          <EmptyState
+            icon="📝"
+            title={t("community.notFound")}
+            subtitle="The post you're looking for doesn't exist or has been removed."
+            actionLabel="Go back"
+            onAction={() => router.back()}
+          />
+        </SafeAreaView>
       </View>
     );
   }
@@ -235,7 +281,7 @@ export default function PostDetailScreen() {
           <FlatList
             data={comments}
             keyExtractor={c => c._id}
-            renderItem={({ item }) => <CommentRow c={item} isDark={isDark} C={C} t={t} />}
+            renderItem={({ item }) => <CommentRow c={item} isDark={isDark} C={C} onImagePress={setLightboxUri} t={t} />}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingBottom: 20 }}
             ListHeaderComponent={
@@ -275,11 +321,13 @@ export default function PostDetailScreen() {
 
                   {/* 图片 */}
                   {post.image_url && (
-                    <Image
-                      source={{ uri: post.image_url }}
-                      style={st.postImage}
-                      resizeMode="cover"
-                    />
+                    <TouchableOpacity onPress={() => setLightboxUri(post.image_url!)} activeOpacity={0.9}>
+                      <Image
+                        source={{ uri: post.image_url }}
+                        style={st.postImage}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
                   )}
 
                   {/* 点赞 */}
@@ -294,6 +342,9 @@ export default function PostDetailScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* 广告横幅 */}
+                <AdBanner style={{ marginTop: 8, marginBottom: 4 }} />
 
                 {/* 评论区标题 */}
                 <View style={[st.commentsHeader, isDark && { borderBottomColor: C.gray200 }]}>
@@ -311,8 +362,21 @@ export default function PostDetailScreen() {
             }
           />
 
+          {/* 图片预览 */}
+          {commentImg && (
+            <View style={[st.imgPreviewBar, isDark && { backgroundColor: C.cardBg, borderTopColor: C.gray200 }]}>
+              <Image source={{ uri: commentImg.uri }} style={st.imgThumb} resizeMode="cover" />
+              <TouchableOpacity onPress={() => setCommentImg(null)} hitSlop={6}>
+                <X size={14} color={Colors.rose400} />
+              </TouchableOpacity>
+            </View>
+          )}
+
           {/* 底部评论输入框 */}
-          <View style={[st.inputBar, isDark && { backgroundColor: C.cardBg, borderTopColor: C.gray200 }]}>
+          <View style={[st.inputBar, isDark && { backgroundColor: C.cardBg, borderTopColor: C.gray200 }, commentImg && { borderTopWidth: 0 }]}>
+            <TouchableOpacity onPress={pickCommentImage} hitSlop={6} style={{ marginBottom: 8 }}>
+              <ImagePlus size={20} color={commentImg ? Colors.rose400 : C.gray400} />
+            </TouchableOpacity>
             <View style={[st.inputWrap, isDark && { backgroundColor: C.gray200, borderColor: C.gray300 }]}>
               <TextInput
                 ref={inputRef}
@@ -327,8 +391,8 @@ export default function PostDetailScreen() {
             </View>
             <TouchableOpacity
               onPress={sendComment}
-              disabled={sending || !text.trim()}
-              style={[st.sendBtn, (!text.trim() || sending) && { opacity: 0.4 }]}
+              disabled={sending || (!text.trim() && !commentImg)}
+              style={[st.sendBtn, (!text.trim() && !commentImg || sending) && { opacity: 0.4 }]}
             >
               <LinearGradient colors={["#F43F8F", "#F472B6"]} style={st.sendBtnGrad}>
                 {sending
@@ -340,6 +404,28 @@ export default function PostDetailScreen() {
 
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* ── 图片全屏查看 ── */}
+      <Modal visible={!!lightboxUri} transparent animationType="fade" onRequestClose={() => setLightboxUri(null)}>
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.92)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setLightboxUri(null)}
+        >
+          {lightboxUri && (
+            <Image
+              source={{ uri: lightboxUri }}
+              style={{ width: "94%", height: "80%" }}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity
+            onPress={() => setLightboxUri(null)}
+            style={{ position: "absolute", top: 54, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" }}
+          >
+            <X size={20} color="#fff" />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -413,6 +499,14 @@ const st = StyleSheet.create({
   commentName:      { fontSize: FontSize.xs, fontWeight: "700", color: Colors.gray800 },
   commentTime:      { fontSize: 10, color: Colors.gray400 },
   commentContent:   { fontSize: FontSize.sm, color: Colors.gray600, lineHeight: 20, marginTop: 4 },
+  commentImg:       { width: "100%", height: 160, borderRadius: 10, marginTop: 6 },
+
+  imgPreviewBar: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    paddingHorizontal: Spacing.lg, paddingTop: 10,
+    backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: "#f3f4f6",
+  },
+  imgThumb: { width: 56, height: 56, borderRadius: 8 },
 
   inputBar: {
     flexDirection: "row", alignItems: "flex-end", gap: 10,
