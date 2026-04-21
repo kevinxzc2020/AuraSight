@@ -22,11 +22,15 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   // 通用
   "common.back": { en: "‹ Back", zh: "‹ 返回" },
   "common.cancel": { en: "Cancel", zh: "取消" },
+  "common.delete": { en: "Delete", zh: "删除" },
   "common.save": { en: "Save", zh: "保存" },
   "common.done": { en: "Done", zh: "完成" },
   "common.gotIt": { en: "Got it", zh: "知道了" },
   "common.continue": { en: "Continue", zh: "继续" },
   "common.upgrade": { en: "Upgrade", zh: "升级" },
+  "common.open": { en: "Open", zh: "打开" },
+  "common.iAgree": { en: "I agree", zh: "我同意" },
+  "common.revoke": { en: "Revoke", zh: "撤销" },
 
   // Tab bar
   "tabs.home": { en: "Home", zh: "首页" },
@@ -74,6 +78,77 @@ const STRINGS: Record<string, Record<Lang, string>> = {
   "settings.deleteAccount": { en: "Delete Account", zh: "删除账户" },
   "settings.vipBanner": { en: "Try VIP free for 7 days", zh: "免费试用 VIP 7 天" },
   "settings.vipActive": { en: "VIP ✦", zh: "VIP ✦" },
+  "settings.section.about": { en: "ABOUT", zh: "关于" },
+  "settings.version": { en: "Version", zh: "版本" },
+  "settings.sendFeedback": { en: "Send Feedback", zh: "发送反馈" },
+  "settings.sendFeedback.sub": { en: "hello@aurasight.app", zh: "hello@aurasight.app" },
+  "settings.skinGoals.note": { en: "Tell AI what you care about most — it tailors your weekly reports.", zh: "告诉 AI 你最关注什么，它会据此定制你的每周报告。" },
+  "settings.consent.agreed": { en: "Agreed", zh: "已同意" },
+  "settings.consent.needed": { en: "Needed for AI analysis & cloud save", zh: "AI 分析和云存储需要此权限" },
+  "settings.appearance.light": { en: "Light", zh: "浅色" },
+  "settings.appearance.dark": { en: "Dark", zh: "深色" },
+  "settings.appearance.system": { en: "System", zh: "跟随系统" },
+  "settings.devTools.switchVip": { en: "Switch to VIP (Test)", zh: "切换 VIP（测试）" },
+  "settings.devTools.current": { en: "Current", zh: "当前" },
+  "settings.rate.alertTitle": { en: "Rate AuraSight", zh: "给 AuraSight 评分" },
+  "settings.rate.alertMsg": { en: "Opening App Store...", zh: "正在打开应用商店..." },
+  "settings.consent.allowTitle": { en: "Allow data use", zh: "允许数据使用" },
+  "settings.consent.allowMsg": { en: "By turning this on, you allow AuraSight to save your skin photos and use anonymized versions to improve our detection model.", zh: "开启后，你允许 AuraSight 保存皮肤照片，并使用匿名版本改进我们的检测模型。" },
+  "settings.consent.revokeTitle": { en: "Revoke data consent?", zh: "撤销数据授权？" },
+  "settings.consent.revokeMsg": { en: "We'll stop using new photos for training and cloud save. You can re-enable this any time.", zh: "我们将停止使用新照片进行训练和云存储。你可以随时重新开启。" },
+  // Skin goals
+  "goal.acne":    { en: "Control breakouts", zh: "控制痘痘" },
+  "goal.tone":    { en: "Even skin tone",    zh: "均匀肤色" },
+  "goal.texture": { en: "Improve texture",   zh: "改善肤质" },
+  "goal.body":    { en: "Track body shape",  zh: "记录体型" },
+  "goal.aging":   { en: "Anti-aging",        zh: "抗衰老" },
+
+  // Community
+  "community.title":        { en: "Community 💬",                    zh: "社区 💬" },
+  "community.sub":          { en: "Skin tips, questions & stories",  zh: "护肤技巧、问题与故事" },
+  "community.filter.all":   { en: "All",                             zh: "全部" },
+  "community.empty":        { en: "No posts yet — be the first!",    zh: "还没有帖子——来发第一条吧！" },
+  "community.newPost":      { en: "New Post",                        zh: "发新帖" },
+  "community.postingAs":    { en: "Posting as",                      zh: "身份" },
+  "community.topic":        { en: "Topic",                           zh: "话题" },
+  "community.addPhoto":     { en: "Add photo",                       zh: "添加图片" },
+  "community.changePhoto":  { en: "Change photo",                    zh: "更换图片" },
+  "community.post":         { en: "Post",                            zh: "发布" },
+  "community.beFirst":      { en: "Be the first to reply 💬",        zh: "来发第一条回复吧 💬" },
+  "community.reply":        { en: "Reply...",                        zh: "写回复..." },
+  "community.pinned":       { en: "Pinned",                          zh: "置顶" },
+  "community.deleteTitle":  { en: "Delete post?",                    zh: "删除帖子？" },
+  "community.deleteMsg":    { en: "This cannot be undone.",           zh: "此操作无法撤销。" },
+  "community.errorPost":    { en: "Could not post. Check your connection.", zh: "发帖失败，请检查网络。" },
+  "community.errorSend":    { en: "Could not send. Check your connection.", zh: "发送失败，请检查网络。" },
+  "community.errorLoad":    { en: "Could not load post.",             zh: "帖子加载失败。" },
+  "community.notFound":     { en: "Post not found.",                  zh: "帖子不存在。" },
+
+  // Post detail
+  "post.navTitle":    { en: "Post",                                          zh: "帖子" },
+  "post.comments":    { en: "Comments",                                      zh: "评论" },
+  "post.noComments":  { en: "No comments yet — be the first to reply! 💬",  zh: "还没有评论——来发第一条吧！💬" },
+  "post.replyAs":     { en: "Reply as",                                      zh: "以身份回复" },
+  "post.likes":       { en: "likes",                                         zh: "个赞" },
+  "post.like":        { en: "like",                                          zh: "个赞" },
+
+  // Post tags
+  "tag.help":    { en: "Help",     zh: "求助" },
+  "tag.share":   { en: "Share",    zh: "分享" },
+  "tag.routine": { en: "Routine",  zh: "护肤" },
+  "tag.checkin": { en: "Check-in", zh: "打卡" },
+
+  // Compose placeholders per tag
+  "community.placeholder.help":    { en: "Describe your skin issue in detail...",    zh: "详细描述你的皮肤问题..." },
+  "community.placeholder.share":   { en: "Share your skin story or experience...",   zh: "分享你的皮肤故事或经历..." },
+  "community.placeholder.routine": { en: "Share your skincare routine or tips...",   zh: "分享你的护肤流程或技巧..." },
+  "community.placeholder.checkin": { en: "Share your progress or today's scan!",     zh: "分享你的进展或今天的扫描结果！" },
+
+  // Time ago
+  "time.justNow": { en: "just now",  zh: "刚刚" },
+  "time.mAgo":    { en: "m ago",     zh: "分钟前" },
+  "time.hAgo":    { en: "h ago",     zh: "小时前" },
+  "time.dAgo":    { en: "d ago",     zh: "天前" },
 
   // Face ID 弹窗
   "faceId.prompt": {

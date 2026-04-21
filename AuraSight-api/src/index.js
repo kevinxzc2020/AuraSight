@@ -1025,6 +1025,170 @@ app.post("/user/referral/redeem", async (req, res) => {
   }
 });
 
+// ─── Community / Forum ────────────────────────────────────
+
+function postsCollection()    { return db.collection("posts"); }
+function commentsCollection() { return db.collection("comments"); }
+
+/**
+ * GET /posts?limit=20&offset=0
+ * 获取帖子列表，置顶帖优先，按时间倒序
+ */
+app.get("/posts", async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit  ?? "20"), 50);
+    const offset = parseInt(req.query.offset ?? "0");
+    const posts = await postsCollection()
+      .find({})
+      .sort({ is_pinned: -1, created_at: -1 })
+      .skip(offset)
+      .limit(limit)
+      .toArray();
+    res.json(posts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /posts
+ * 发帖，body: { author_id, author_name, content, is_official? }
+ */
+app.post("/posts", async (req, res) => {
+  try {
+    const { author_id, author_name, content, tag = "share", is_official = false, image_base64 } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Content required" });
+    const validTags = ["help", "share", "routine", "checkin"];
+
+    // 如果有图片，上传到 Cloudinary
+    let image_url = null;
+    if (image_base64) {
+      image_url = await uploadToCloudinary(image_base64, author_id ?? "guest");
+    }
+
+    const post = {
+      author_id:     author_id ?? "guest",
+      author_name:   author_name?.trim() || "Anonymous",
+      content:       content.trim(),
+      tag:           validTags.includes(tag) ? tag : "share",
+      image_url:     image_url ?? undefined,
+      is_pinned:     false,
+      is_official:   !!is_official,
+      likes:         [],
+      comment_count: 0,
+      created_at:    new Date().toISOString(),
+    };
+    const result = await postsCollection().insertOne(post);
+    res.json({ ...post, _id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /posts/:id
+ * 获取单个帖子
+ */
+app.get("/posts/:id", async (req, res) => {
+  try {
+    const post = await postsCollection().findOne({ _id: new ObjectId(req.params.id) });
+    if (!post) return res.status(404).json({ error: "Not found" });
+    res.json(post);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /posts/:id/like
+ * 切换点赞（已赞→取消，未赞→加赞），body: { user_id }
+ */
+app.post("/posts/:id/like", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id = "guest" } = req.body;
+    const post = await postsCollection().findOne({ _id: new ObjectId(id) });
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    const alreadyLiked = (post.likes ?? []).includes(user_id);
+    await postsCollection().updateOne(
+      { _id: new ObjectId(id) },
+      alreadyLiked
+        ? { $pull:  { likes: user_id } }
+        : { $push:  { likes: user_id } },
+    );
+    const updated = await postsCollection().findOne({ _id: new ObjectId(id) });
+    res.json({ likes: updated.likes, liked: !alreadyLiked });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /posts/:id/comments
+ * 获取帖子评论，按时间正序
+ */
+app.get("/posts/:id/comments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const comments = await commentsCollection()
+      .find({ post_id: id })
+      .sort({ created_at: 1 })
+      .toArray();
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /posts/:id/comments
+ * 发评论，body: { author_id, author_name, content }
+ */
+app.post("/posts/:id/comments", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { author_id, author_name, content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Content required" });
+
+    const comment = {
+      post_id:     id,
+      author_id:   author_id ?? "guest",
+      author_name: author_name?.trim() || "Anonymous",
+      content:     content.trim(),
+      created_at:  new Date().toISOString(),
+    };
+    const result = await commentsCollection().insertOne(comment);
+    // 同步更新帖子的 comment_count
+    await postsCollection().updateOne(
+      { _id: new ObjectId(id) },
+      { $inc: { comment_count: 1 } },
+    );
+    res.json({ ...comment, _id: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /posts/:id
+ * 删除帖子（仅作者本人），body: { user_id }
+ */
+app.delete("/posts/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.body;
+    const post = await postsCollection().findOne({ _id: new ObjectId(id) });
+    if (!post) return res.status(404).json({ error: "Not found" });
+    if (post.author_id !== user_id) return res.status(403).json({ error: "Not your post" });
+    await postsCollection().deleteOne({ _id: new ObjectId(id) });
+    await commentsCollection().deleteMany({ post_id: id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── 启动 ─────────────────────────────────────────────────
 connectDB().then(() => {
   app.listen(PORT, () => {

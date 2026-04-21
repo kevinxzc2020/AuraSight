@@ -1,5 +1,5 @@
 import { Tabs, router } from "expo-router";
-import { Camera, Clock, FileText, Home, User, Settings } from "lucide-react-native";
+import { Camera, FileText, Home, User, Settings, Users } from "lucide-react-native";
 import { useRef } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -94,7 +94,10 @@ export default function TabLayout() {
         headerShown: false,
         tabBarStyle: [
           styles.tabBar,
-          { paddingBottom: insets.bottom + 6 },
+          {
+            paddingBottom: insets.bottom || 0,
+            height: 56 + (insets.bottom || 0),
+          },
           isDark && {
             backgroundColor: "rgba(26,26,46,0.97)",
             shadowColor: "#000",
@@ -114,10 +117,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="community"
         options={{
-          title: "History",
-          tabBarIcon: ({ focused }) => <TabIcon Icon={Clock} focused={focused} />,
+          title: "Community",
+          tabBarIcon: ({ focused }) => <TabIcon Icon={Users} focused={focused} />,
         }}
       />
       <Tabs.Screen
@@ -143,7 +146,11 @@ export default function TabLayout() {
           tabBarIcon: ({ focused }) => <TabIcon Icon={User} focused={focused} />,
         }}
       />
-      {/* Settings 从 tab bar 隐藏——通过 Profile 页进入 */}
+      {/* History、Settings 隐藏在 tab bar 外 */}
+      <Tabs.Screen
+        name="history"
+        options={{ href: null, title: "History" }}
+      />
       <Tabs.Screen
         name="settings"
         options={{
@@ -161,11 +168,11 @@ const styles = StyleSheet.create({
   // 注意：不要用 position: "absolute"，否则页面内容（如相机快门）会被 tab bar 盖住
   tabBar: {
     backgroundColor: "rgba(255,255,255,0.97)",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     borderTopWidth: 0,
     paddingTop: 8,
-    height: 72,
+    paddingHorizontal: 4,
     shadowColor: "#F472B6",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.08,

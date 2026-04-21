@@ -9,7 +9,6 @@ import {
   Alert,
   Linking,
   Platform,
-  Dimensions,
   Modal,
   Pressable,
 } from "react-native";
@@ -29,10 +28,11 @@ import {
   Info,
   Lock,
   Check,
+  ShieldCheck,
+  Clock,
 } from "lucide-react-native";
 import {
   Colors,
-  Gradients,
   Spacing,
   Radius,
   FontSize,
@@ -43,7 +43,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useUser } from "../lib/userContext";
 import { getConsent, acceptConsent, revokeConsentEverywhere } from "../lib/consent";
 import { getUserId } from "../lib/userId";
-import { ShieldCheck, Clock } from "lucide-react-native";
 import { useT, Lang } from "../lib/i18n";
 import {
   ensurePermission,
@@ -60,15 +59,14 @@ import {
 } from "../lib/biometric";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
-const { width } = Dimensions.get("window");
 const APP_VERSION = "1.0.0";
 
 const SKIN_GOALS = [
-  { id: "acne", label: "Control breakouts", emoji: "🎯" },
-  { id: "tone", label: "Even skin tone", emoji: "✨" },
-  { id: "texture", label: "Improve texture", emoji: "🌿" },
-  { id: "body", label: "Track body shape", emoji: "🧍" },
-  { id: "aging", label: "Anti-aging", emoji: "💫" },
+  { id: "acne", labelKey: "goal.acne", emoji: "🎯" },
+  { id: "tone", labelKey: "goal.tone", emoji: "✨" },
+  { id: "texture", labelKey: "goal.texture", emoji: "🌿" },
+  { id: "body", labelKey: "goal.body", emoji: "🧍" },
+  { id: "aging", labelKey: "goal.aging", emoji: "💫" },
 ];
 
 // ─── 设置行组件 ───────────────────────────────────────────
@@ -170,14 +168,13 @@ export default function SettingsScreen() {
 
   async function toggleDataConsent(val: boolean) {
     if (val) {
-      // 打开 = 授予同意。用 Alert 让用户确认一下，条款详情在首次弹窗里已经看过。
       Alert.alert(
-        "Allow data use",
-        "By turning this on, you allow AuraSight to save your skin photos and use anonymized versions to improve our detection model.",
+        t("settings.consent.allowTitle"),
+        t("settings.consent.allowMsg"),
         [
-          { text: "Cancel", style: "cancel" },
+          { text: t("common.cancel"), style: "cancel" },
           {
-            text: "I agree",
+            text: t("common.iAgree"),
             onPress: async () => {
               await acceptConsent();
               const c = await getConsent();
@@ -188,18 +185,15 @@ export default function SettingsScreen() {
         ],
       );
     } else {
-      // 关闭 = 撤销。撤销之后，新上传不会再被用于训练/云端保存，下次使用会重新弹窗征求同意。
       Alert.alert(
-        "Revoke data consent?",
-        "We'll stop using new photos for training and cloud save. You can re-enable this any time.",
+        t("settings.consent.revokeTitle"),
+        t("settings.consent.revokeMsg"),
         [
-          { text: "Cancel", style: "cancel" },
+          { text: t("common.cancel"), style: "cancel" },
           {
-            text: "Revoke",
+            text: t("common.revoke"),
             style: "destructive",
             onPress: async () => {
-              // 用集中版 getUserId——登录后拿账号 id，未登录拿 guest id。
-              // 通知后端把该用户历史 scans 的 can_train 置 false。
               const uid = await getUserId();
               await revokeConsentEverywhere(uid);
               setDataConsentOn(false);
@@ -229,12 +223,14 @@ export default function SettingsScreen() {
       );
       if (id) {
         setReminderOn(true);
+        await AsyncStorage.setItem("@aurasight_reminder_on", "true");
       } else {
         Alert.alert("🔔", "Failed to schedule reminder.");
       }
     } else {
       await disableReminder();
       setReminderOn(false);
+      await AsyncStorage.setItem("@aurasight_reminder_on", "false");
     }
   }
 
@@ -309,7 +305,7 @@ export default function SettingsScreen() {
       <LinearGradient colors={["#F43F8F", "#F472B6", "#FB9FBD"]} style={st.hero}>
         <SafeAreaView edges={["top"]}>
           <TouchableOpacity onPress={() => router.back()} style={st.backBtn}>
-            <Text style={st.backText}>‹ Back</Text>
+            <Text style={st.backText}>{t("common.back")}</Text>
           </TouchableOpacity>
 
           <View style={st.heroBody}>
@@ -342,7 +338,7 @@ export default function SettingsScreen() {
               style={st.vipBanner}
             >
               <Crown size={14} color="#fde68a" />
-              <Text style={st.vipBannerText}>Try VIP free for 7 days</Text>
+              <Text style={st.vipBannerText}>{t("settings.vipBanner")}</Text>
               <View style={st.vipBannerArrow}>
                 <ChevronRight size={14} color="rgba(255,255,255,0.6)" />
               </View>
@@ -358,10 +354,10 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* ── 皮肤目标 ── */}
-        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>SKIN GOALS</Text>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.skinGoals")}</Text>
         <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
           <Text style={[st.cardNote, isDark && { color: C.gray400 }]}>
-            Tell AI what you care about most — it tailors your weekly reports.
+            {t("settings.skinGoals.note")}
           </Text>
           <View style={st.goalGrid}>
             {SKIN_GOALS.map((g) => {
@@ -380,7 +376,7 @@ export default function SettingsScreen() {
                   )}
                   <Text style={st.goalEmoji}>{g.emoji}</Text>
                   <Text style={[st.goalLabel, on && st.goalLabelOn, isDark && !on && { color: C.gray500 }]}>
-                    {g.label}
+                    {t(g.labelKey)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -456,13 +452,13 @@ export default function SettingsScreen() {
           <Row
             iconBg={isDark ? C.gray200 : "#fdf2f8"}
             iconEl={<ShieldCheck size={15} color={Colors.rose400} />}
-            label="Allow photo data use"
+            label={t("settings.photoDataUse")}
             sub={
               dataConsentOn
                 ? consentAcceptedAt
-                  ? `Agreed ${new Date(consentAcceptedAt).toLocaleDateString()}`
-                  : "Agreed"
-                : "Needed for AI analysis & cloud save"
+                  ? `${t("settings.consent.agreed")} ${new Date(consentAcceptedAt).toLocaleDateString()}`
+                  : t("settings.consent.agreed")
+                : t("settings.consent.needed")
             }
             rightEl={
               <Switch
@@ -476,13 +472,13 @@ export default function SettingsScreen() {
           <Row
             iconBg={isDark ? C.gray200 : "#f0f9ff"}
             iconEl={<Shield size={15} color="#3b82f6" />}
-            label="Privacy Policy"
+            label={t("settings.privacyPolicy")}
             onPress={() => Linking.openURL("https://aurasight.app/privacy")}
           />
           <Row
             iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<FileText size={15} color={Colors.emerald} />}
-            label="Terms of Service"
+            label={t("settings.terms")}
             onPress={() => Linking.openURL("https://aurasight.app/terms")}
             isLast
           />
@@ -496,15 +492,15 @@ export default function SettingsScreen() {
             iconEl={<Globe size={15} color="#f97316" />}
             label={t("settings.language")}
             value={lang === "zh" ? "中文" : "English"}
-            onPress={() => setShowLangSheet(true)}
+            onPress={() => { setShowLangSheet(p => !p); setShowThemeSheet(false); }}
             isFirst
           />
           <Row
             iconBg={isDark ? "#2a2a3a" : "#1f2937"}
             iconEl={<Moon size={15} color={isDark ? "#fbbf24" : "#e2e8f0"} />}
             label={t("settings.appearance")}
-            value={themeMode === "light" ? "Light" : themeMode === "dark" ? "Dark" : "System"}
-            onPress={() => setShowThemeSheet((p) => !p)}
+            value={themeMode === "light" ? t("settings.appearance.light") : themeMode === "dark" ? t("settings.appearance.dark") : t("settings.appearance.system")}
+            onPress={() => { setShowThemeSheet(p => !p); setShowLangSheet(false); }}
             isLast
           />
         </View>
@@ -513,24 +509,26 @@ export default function SettingsScreen() {
         {showLangSheet && (
           <View style={[st.card, S.card, isDark && dkCard, { marginTop: -8 }]}>
             {(["en", "zh"] as const).map((l, i) => (
-              <TouchableOpacity
-                key={l}
-                onPress={() => handlePickLang(l)}
-                style={[st.row, i === 0 && st.rowFirst, i === 1 && st.rowLast]}
-                activeOpacity={0.7}
-              >
-                <View style={[st.rowIcon, { backgroundColor: "#fff7ed" }]}>
-                  <Text style={{ fontSize: 14 }}>
-                    {l === "en" ? "🇺🇸" : "🇨🇳"}
-                  </Text>
-                </View>
-                <View style={st.rowMid}>
-                  <Text style={st.rowLabel}>
-                    {l === "en" ? "English" : "中文"}
-                  </Text>
-                </View>
-                {lang === l && <Check size={16} color={Colors.rose400} />}
-              </TouchableOpacity>
+              <React.Fragment key={l}>
+                <TouchableOpacity
+                  onPress={() => handlePickLang(l)}
+                  style={[st.row, i === 0 && st.rowFirst, i === 1 && st.rowLast]}
+                  activeOpacity={0.7}
+                >
+                  <View style={[st.rowIcon, { backgroundColor: isDark ? C.gray200 : "#fff7ed" }]}>
+                    <Text style={{ fontSize: 14 }}>
+                      {l === "en" ? "🇺🇸" : "🇨🇳"}
+                    </Text>
+                  </View>
+                  <View style={st.rowMid}>
+                    <Text style={[st.rowLabel, isDark && { color: C.gray900 }]}>
+                      {l === "en" ? "English" : "中文"}
+                    </Text>
+                  </View>
+                  {lang === l && <Check size={16} color={Colors.rose400} />}
+                </TouchableOpacity>
+                {i === 0 && <View style={[st.separator, isDark && { backgroundColor: C.gray200 }]} />}
+              </React.Fragment>
             ))}
           </View>
         )}
@@ -539,44 +537,46 @@ export default function SettingsScreen() {
         {showThemeSheet && (
           <View style={[st.card, S.card, isDark && dkCard, { marginTop: -8 }]}>
             {([
-              { key: "light" as ThemeMode, label: "Light", icon: "☀️" },
-              { key: "dark" as ThemeMode, label: "Dark", icon: "🌙" },
-              { key: "system" as ThemeMode, label: "System", icon: "📱" },
+              { key: "light" as ThemeMode, labelKey: "settings.appearance.light", icon: "☀️" },
+              { key: "dark" as ThemeMode, labelKey: "settings.appearance.dark", icon: "🌙" },
+              { key: "system" as ThemeMode, labelKey: "settings.appearance.system", icon: "📱" },
             ]).map((item, i) => (
-              <TouchableOpacity
-                key={item.key}
-                onPress={() => { setThemeMode(item.key); setShowThemeSheet(false); }}
-                style={[st.row, i === 0 && st.rowFirst, i === 2 && st.rowLast]}
-                activeOpacity={0.7}
-              >
-                <View style={[st.rowIcon, { backgroundColor: isDark ? C.gray200 : "#f5f3ff" }]}>
-                  <Text style={{ fontSize: 14 }}>{item.icon}</Text>
-                </View>
-                <View style={st.rowMid}>
-                  <Text style={st.rowLabel}>{item.label}</Text>
-                </View>
-                {themeMode === item.key && <Check size={16} color={Colors.rose400} />}
-              </TouchableOpacity>
+              <React.Fragment key={item.key}>
+                <TouchableOpacity
+                  onPress={() => { setThemeMode(item.key); setShowThemeSheet(false); }}
+                  style={[st.row, i === 0 && st.rowFirst, i === 2 && st.rowLast]}
+                  activeOpacity={0.7}
+                >
+                  <View style={[st.rowIcon, { backgroundColor: isDark ? C.gray200 : "#f5f3ff" }]}>
+                    <Text style={{ fontSize: 14 }}>{item.icon}</Text>
+                  </View>
+                  <View style={st.rowMid}>
+                    <Text style={[st.rowLabel, isDark && { color: C.gray900 }]}>{t(item.labelKey)}</Text>
+                  </View>
+                  {themeMode === item.key && <Check size={16} color={Colors.rose400} />}
+                </TouchableOpacity>
+                {i < 2 && <View style={[st.separator, isDark && { backgroundColor: C.gray200 }]} />}
+              </React.Fragment>
             ))}
           </View>
         )}
 
         {/* ── 帮助 & 反馈 ── */}
-        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>HELP & FEEDBACK</Text>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.help")}</Text>
         <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
             iconBg={isDark ? C.gray200 : "#fefce8"}
             iconEl={<Star size={15} color="#eab308" />}
-            label="Rate AuraSight ⭐"
-            sub="Your review helps others find us"
+            label={t("settings.rate")}
+            sub={t("settings.rate.sub")}
             onPress={() => {
               const url =
                 Platform.OS === "ios"
                   ? "https://apps.apple.com/app/idXXXXXXXXX?action=write-review"
                   : "https://play.google.com/store/apps/details?id=com.aurasight";
-              Alert.alert("Rate AuraSight", "Opening App Store...", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Open", onPress: () => Linking.openURL(url) },
+              Alert.alert(t("settings.rate.alertTitle"), t("settings.rate.alertMsg"), [
+                { text: t("common.cancel"), style: "cancel" },
+                { text: t("common.open"), onPress: () => Linking.openURL(url) },
               ]);
             }}
             isFirst
@@ -584,8 +584,8 @@ export default function SettingsScreen() {
           <Row
             iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<MessageSquare size={15} color={Colors.emerald} />}
-            label="Send Feedback"
-            sub="hello@aurasight.app"
+            label={t("settings.sendFeedback")}
+            sub={t("settings.sendFeedback.sub")}
             onPress={() =>
               Linking.openURL(
                 "mailto:hello@aurasight.app?subject=AuraSight Feedback",
@@ -596,12 +596,12 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 关于 ── */}
-        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>ABOUT</Text>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.about")}</Text>
         <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
             iconBg={isDark ? C.gray200 : "#f5f3ff"}
             iconEl={<Info size={15} color="#8b5cf6" />}
-            label="Version"
+            label={t("settings.version")}
             value={`v${APP_VERSION}`}
             isFirst
             isLast
@@ -609,13 +609,13 @@ export default function SettingsScreen() {
         </View>
 
         {/* ── 开发者测试 ── */}
-        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>DEV TOOLS</Text>
+        <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.dev")}</Text>
         <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
             iconBg={isDark ? C.gray200 : "#fef9c3"}
             iconEl={<Crown size={15} color="#d97706" />}
-            label="Switch to VIP (Test)"
-            sub={`Current: ${userMode}`}
+            label={t("settings.devTools.switchVip")}
+            sub={`${t("settings.devTools.current")}: ${userMode}`}
             onPress={async () => {
               const next = userMode === "vip" ? "registered" : "vip";
               // 通过 UserContext.setUser 双写两个 key，保证 useUser() 立刻拿到新 mode
@@ -644,11 +644,11 @@ export default function SettingsScreen() {
             <Pressable style={[st.tpSheet, isDark && { backgroundColor: C.cardBg }]} onPress={() => {}}>
               <View style={[st.tpHeader, isDark && { borderBottomColor: C.gray200 }]}>
                 <TouchableOpacity onPress={() => setShowTimePicker(false)}>
-                  <Text style={[st.tpCancel, isDark && { color: C.gray400 }]}>Cancel</Text>
+                  <Text style={[st.tpCancel, isDark && { color: C.gray400 }]}>{t("common.cancel")}</Text>
                 </TouchableOpacity>
-                <Text style={[st.tpTitle, isDark && { color: C.gray900 }]}>Reminder time</Text>
+                <Text style={[st.tpTitle, isDark && { color: C.gray900 }]}>{t("settings.reminderTime")}</Text>
                 <TouchableOpacity onPress={() => setShowTimePicker(false)}>
-                  <Text style={st.tpDone}>Done</Text>
+                  <Text style={st.tpDone}>{t("common.done")}</Text>
                 </TouchableOpacity>
               </View>
               <DateTimePicker
