@@ -85,9 +85,11 @@ const MILESTONES = [
 type TaskAction =
   | { type: "navigate"; to: string }
   | { type: "mood" }
-  | { type: "tip" };
+  | { type: "tip" }
+  | { type: "auto" }    // auto-completed on app open
+  | { type: "scan" };   // face scan check-in
 
-interface ExtraTask {
+interface DailyTask {
   id: string;
   emoji: string;
   labelKey: string;
@@ -98,13 +100,22 @@ interface ExtraTask {
   vip?: boolean;
 }
 
-const EXTRA_TASKS: ExtraTask[] = [
-  { id: "mood",      emoji: "😊", labelKey: "home.task.mood",      subKey: "home.task.moodSub",      pts: 10, btnLabelKey: "home.task.moodBtn",      action: { type: "mood" } },
-  { id: "tip",       emoji: "💡", labelKey: "home.task.tip",       subKey: "home.task.tipSub",       pts: 5,  btnLabelKey: "home.task.tipBtn",       action: { type: "tip" } },
-  { id: "progress",  emoji: "📊", labelKey: "home.task.progress",  subKey: "home.task.progressSub",  pts: 10, btnLabelKey: "home.task.progressBtn",  action: { type: "navigate", to: "/(tabs)/history" } },
-  { id: "ai_report", emoji: "🤖", labelKey: "home.task.aiReport",  subKey: "home.task.aiReportSub",  pts: 20, btnLabelKey: "home.task.aiReportBtn",  action: { type: "navigate", to: "/(tabs)/report" }, vip: true },
-  { id: "ai_chat",   emoji: "💬", labelKey: "home.task.aiChat",    subKey: "home.task.aiChatSub",    pts: 15, btnLabelKey: "home.task.aiChatBtn",    action: { type: "navigate", to: "/chat" }, vip: true },
+// ── 5 free tasks (every user can complete all 5 daily) ──────
+const FREE_TASKS: DailyTask[] = [
+  { id: "auto",      emoji: "👋", labelKey: "home.task.autoCheckin", subKey: "home.task.autoCheckinSub", pts: 5,  btnLabelKey: "home.task.autoCheckinBtn", action: { type: "auto" } },
+  { id: "face",      emoji: "📸", labelKey: "home.task.faceScan",    subKey: "home.task.faceScanSub",    pts: 50, btnLabelKey: "common.scan",              action: { type: "scan" } },
+  { id: "mood",      emoji: "😊", labelKey: "home.task.mood",        subKey: "home.task.moodSub",        pts: 10, btnLabelKey: "home.task.moodBtn",        action: { type: "mood" } },
+  { id: "tip",       emoji: "💡", labelKey: "home.task.tip",         subKey: "home.task.tipSub",         pts: 5,  btnLabelKey: "home.task.tipBtn",         action: { type: "tip" } },
+  { id: "progress",  emoji: "📊", labelKey: "home.task.progress",    subKey: "home.task.progressSub",    pts: 10, btnLabelKey: "home.task.progressBtn",    action: { type: "navigate", to: "/(tabs)/history" } },
 ];
+
+// ── 2 VIP bonus tasks (extra rewards for subscribers) ───────
+const VIP_TASKS: DailyTask[] = [
+  { id: "ai_report", emoji: "🤖", labelKey: "home.task.aiReport",   subKey: "home.task.aiReportSub",    pts: 20, btnLabelKey: "home.task.aiReportBtn",    action: { type: "navigate", to: "/(tabs)/report" }, vip: true },
+  { id: "ai_chat",   emoji: "💬", labelKey: "home.task.aiChat",      subKey: "home.task.aiChatSub",      pts: 15, btnLabelKey: "home.task.aiChatBtn",      action: { type: "navigate", to: "/chat" }, vip: true },
+];
+
+const ALL_TASKS: DailyTask[] = [...FREE_TASKS, ...VIP_TASKS];
 
 const SKIN_TIP_COUNT = 15;
 
@@ -509,12 +520,11 @@ export default function HomeScreen() {
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
   const [streakModalVisible, setStreakModalVisible] = useState(false);
-  const [faceDone, setFaceDone] = useState(false);
   const [bodyDone, setBodyDone] = useState(false);
   const [yesterdayFace, setYesterdayFace] = useState<string | null>(null);
   const [yesterdayBody, setYesterdayBody] = useState<string | null>(null);
   const [insight, setInsight] = useState<InsightData | null>(null);
-  const [extraDone, setExtraDone] = useState<Record<string, boolean>>({});
+  const [taskDone, setTaskDone] = useState<Record<string, boolean>>({});
   const [spotsModalVisible, setSpotsModalVisible] = useState(false);
   const [latestFaceScan, setLatestFaceScan] = useState<ScanRecord | null>(null);
   const [moodModalVisible, setMoodModalVisible] = useState(false);
@@ -546,9 +556,15 @@ export default function HomeScreen() {
       setIsGuest(mode !== "registered" && mode !== "vip");
       setIsVip(mode === "vip");
 
-      // Load extra task completions for today
-      const extraRaw = await AsyncStorage.getItem(`@aurasight_extra_tasks_${todayKey()}`);
-      if (extraRaw) setExtraDone(JSON.parse(extraRaw));
+      // Load task completions for today
+      const taskRaw = await AsyncStorage.getItem(`@aurasight_extra_tasks_${todayKey()}`);
+      const savedTasks: Record<string, boolean> = taskRaw ? JSON.parse(taskRaw) : {};
+      // Auto check-in: opening the app completes this task automatically
+      if (!savedTasks.auto) {
+        savedTasks.auto = true;
+        await AsyncStorage.setItem(`@aurasight_extra_tasks_${todayKey()}`, JSON.stringify(savedTasks));
+      }
+      setTaskDone(savedTasks);
 
       // Load user's preferred check-in collapsed/expanded state
       const expandedRaw = await AsyncStorage.getItem("@aurasight_checkin_expanded");
@@ -578,7 +594,13 @@ export default function HomeScreen() {
         .then(r => r.json())
         .then(data => { if (data.tip) setAiTip(data.tip); })
         .catch(() => {});
-      setFaceDone(ptsRes.tasks_today?.face ?? false);
+      // Sync face scan status into unified task system
+      const faceCompleted = ptsRes.tasks_today?.face ?? false;
+      if (faceCompleted && !savedTasks.face) {
+        savedTasks.face = true;
+        setTaskDone({ ...savedTasks });
+        await AsyncStorage.setItem(`@aurasight_extra_tasks_${todayKey()}`, JSON.stringify(savedTasks));
+      }
       setBodyDone(ptsRes.tasks_today?.body ?? false);
 
       const yesterday = new Date();
@@ -618,20 +640,25 @@ export default function HomeScreen() {
     }
   }
 
-  async function completeExtraTask(id: string) {
-    if (extraDone[id]) return;
-    const next = { ...extraDone, [id]: true };
-    setExtraDone(next);
+  async function completeTask(id: string) {
+    if (taskDone[id]) return;
+    const next = { ...taskDone, [id]: true };
+    setTaskDone(next);
     await AsyncStorage.setItem(`@aurasight_extra_tasks_${todayKey()}`, JSON.stringify(next));
   }
 
-  function handleExtraTaskAction(task: ExtraTask) {
-    if (task.action.type === "mood") {
+  function handleTaskAction(task: DailyTask) {
+    if (task.action.type === "auto") {
+      // already completed on app open
+      return;
+    } else if (task.action.type === "scan") {
+      router.push("/(tabs)/camera");
+    } else if (task.action.type === "mood") {
       setMoodModalVisible(true);
     } else if (task.action.type === "tip") {
       setTipExpanded(v => !v);
     } else if (task.action.type === "navigate") {
-      completeExtraTask(task.id);
+      completeTask(task.id);
       router.push(task.action.to as any);
     }
   }
@@ -640,8 +667,11 @@ export default function HomeScreen() {
   const skinScore: number | null = stats ? (stats.latest_score ?? null) : null;
   const scoreChange = stats?.week_change ?? null;
 
-  const totalExtraPts = EXTRA_TASKS.filter((t) => extraDone[t.id]).reduce((s, t) => s + t.pts, 0);
-  const displayTodayPts = todayPts + totalExtraPts;
+  const faceDone = !!taskDone.face;
+  const freeDoneCount = FREE_TASKS.filter((t) => !!taskDone[t.id]).length;
+  const vipDoneCount = VIP_TASKS.filter((t) => !!taskDone[t.id]).length;
+  const taskPts = ALL_TASKS.filter((t) => !!taskDone[t.id]).reduce((s, t) => s + t.pts, 0);
+  const displayTodayPts = todayPts + taskPts;
 
   return (
     <LinearGradient colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
@@ -728,10 +758,7 @@ export default function HomeScreen() {
 
           {/* ── Daily Check-in（隐藏式：默认收起，点击展开） ── */}
           {(() => {
-            const mainDone = faceDone ? 1 : 0; // body hidden for now
-            const extraDoneCount = Object.values(extraDone).filter(Boolean).length;
-            const totalExtra = EXTRA_TASKS.length;
-            const allMainDone = faceDone; // body hidden for now
+            const allFreeDone = freeDoneCount === FREE_TASKS.length;
             return (
           <View style={[styles.card, styles.checkinCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
             <TouchableOpacity
@@ -748,8 +775,8 @@ export default function HomeScreen() {
                 {/* 折叠态摘要行：一眼看完成进度 */}
                 {!checkinExpanded && (
                   <Text style={[styles.checkinSummary, isDark && { color: C.gray400 }]}>
-                    {allMainDone ? t("home.doneToday") : t("home.mainProgress", { done: String(mainDone) })}
-                    {totalExtra > 0 ? ` · ${t("home.bonusProgress", { done: String(extraDoneCount), total: String(totalExtra) })}` : ""}
+                    {allFreeDone ? t("home.doneToday") : `${freeDoneCount}/${FREE_TASKS.length}`}
+                    {isVip && vipDoneCount > 0 ? ` · +${vipDoneCount} bonus` : ""}
                     {` · ${displayTodayPts} ${t("home.pts")}`}
                   </Text>
                 )}
@@ -762,15 +789,17 @@ export default function HomeScreen() {
             </TouchableOpacity>
             {checkinExpanded && (
               <View style={styles.cardHeader}>
-                <Text style={[styles.cardHeaderPts, isDark && { color: C.gray500 }]}>{t("home.ptsToday", { pts: String(displayTodayPts) })}</Text>
+                <Text style={[styles.cardHeaderPts, isDark && { color: C.gray500 }]}>
+                  {`${freeDoneCount}/${FREE_TASKS.length} · ${displayTodayPts} ${t("home.pts")}`}
+                </Text>
               </View>
             )}
 
             {checkinExpanded && (
             <>
 
-            {/* 完成时的庆祝横幅 */}
-            {faceDone && (
+            {/* 全部完成时的庆祝横幅 */}
+            {allFreeDone && (
               <LinearGradient
                 colors={["#10B981", "#34D399"]}
                 start={{ x: 0, y: 0 }}
@@ -788,73 +817,88 @@ export default function HomeScreen() {
               </LinearGradient>
             )}
 
-            {/* Face Task */}
-            <View style={styles.taskRow}>
-              {yesterdayFace ? (
-                <Image source={{ uri: yesterdayFace }} style={styles.taskThumb} />
-              ) : (
-                <LinearGradient colors={["#FFE4E6", "#FCE7F3"]} style={styles.taskThumb}>
-                  <Text style={styles.taskThumbEmoji}>📸</Text>
-                </LinearGradient>
-              )}
-              <View style={styles.taskInfo}>
-                <Text style={[styles.taskName, faceDone && styles.taskNameDone, isDark && { color: C.gray900 }]}>
-                  {faceDone ? t("home.faceChecked") : t("home.howsSkin")}
-                </Text>
-                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>{t("home.faceScanSub")}</Text>
-              </View>
-              {faceDone ? (
-                <CheckCircle size={22} color="#10B981" />
-              ) : (
-                <AnimatedPressable onPress={() => router.push("/(tabs)/camera")} scaleAmount={0.93}>
-                  <LinearGradient colors={["#F43F8F", "#FB7185"]} style={styles.scanBtn}>
-                    <Text style={styles.scanBtnText}>{t("common.scan")}</Text>
-                  </LinearGradient>
-                </AnimatedPressable>
-              )}
-            </View>
-
-            <View style={styles.taskDivider} />
-
-            {/* ── Body Task 暂时隐藏 ──
-            <View style={styles.taskRow}>
-              {yesterdayBody ? (
-                <Image source={{ uri: yesterdayBody }} style={styles.taskThumb} />
-              ) : (
-                <LinearGradient colors={["#FCE7F3", "#FFDDE8"]} style={styles.taskThumb}>
-                  <Text style={styles.taskThumbEmoji}>🧍</Text>
-                </LinearGradient>
-              )}
-              <View style={styles.taskInfo}>
-                <Text style={[styles.taskName, bodyDone && styles.taskNameDone, isDark && { color: C.gray900 }]}>
-                  {bodyDone ? "Body checked in ✓" : "Quick body check-in"}
-                </Text>
-                <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>+50 pts · tracks shape & progress</Text>
-              </View>
-              {bodyDone ? (
-                <CheckCircle size={22} color="#10B981" />
-              ) : (
-                <TouchableOpacity onPress={() => router.push("/(tabs)/camera")}>
-                  <LinearGradient colors={["#F43F8F", "#FB7185"]} style={styles.scanBtn}>
-                    <Text style={styles.scanBtnText}>{t("common.scan")}</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.taskDivider} />
-            ── end hidden body task ── */}
-
-            {/* Extra in-app interactive tasks */}
-            {EXTRA_TASKS.map((task, idx) => {
-              const done = !!extraDone[task.id];
-              const isLast = idx === EXTRA_TASKS.length - 1;
-              const locked = !!task.vip && !isVip;
+            {/* ── Free Tasks (5 items) ── */}
+            {FREE_TASKS.map((task, idx) => {
+              const done = !!taskDone[task.id];
+              const isLast = idx === FREE_TASKS.length - 1 && !isVip;
+              const isAuto = task.action.type === "auto";
+              const isScan = task.action.type === "scan";
 
               return (
                 <React.Fragment key={task.id}>
                   <View style={[styles.taskRow, isLast && { paddingBottom: 0 }]}>
-                    {/* Thumb */}
+                    {/* Thumb — show yesterday's face photo for scan task */}
+                    {isScan && yesterdayFace ? (
+                      <Image source={{ uri: yesterdayFace }} style={styles.taskThumb} />
+                    ) : (
+                      <LinearGradient
+                        colors={done ? ["#ECFDF5", "#D1FAE5"] : ["#FFF5F8", "#FFF0F6"]}
+                        style={styles.taskThumb}
+                      >
+                        <Text style={styles.taskThumbEmoji}>{task.emoji}</Text>
+                      </LinearGradient>
+                    )}
+
+                    {/* Info */}
+                    <View style={styles.taskInfo}>
+                      <Text style={[styles.taskName, done && styles.taskNameDone, isDark && { color: C.gray900 }]}>
+                        {t(task.labelKey)}
+                      </Text>
+                      <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>{t(task.subKey)}</Text>
+                    </View>
+
+                    {/* Action */}
+                    {done ? (
+                      <CheckCircle size={22} color="#10B981" />
+                    ) : isAuto ? (
+                      <CheckCircle size={22} color="#10B981" />
+                    ) : isScan ? (
+                      <AnimatedPressable onPress={() => router.push("/(tabs)/camera")} scaleAmount={0.93}>
+                        <LinearGradient colors={["#F43F8F", "#FB7185"]} style={styles.scanBtn}>
+                          <Text style={styles.scanBtnText}>{t(task.btnLabelKey)}</Text>
+                        </LinearGradient>
+                      </AnimatedPressable>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={() => handleTaskAction(task)}
+                        style={styles.actionBtn}
+                      >
+                        <Text style={styles.actionBtnText}>{t(task.btnLabelKey)}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* Inline tip expand */}
+                  {task.id === "tip" && tipExpanded && !done && (
+                    <View style={styles.tipInline}>
+                      <Text style={styles.tipInlineText}>{`💡 ${aiTip || getStaticTip(t)}`}</Text>
+                      <TouchableOpacity
+                        style={styles.tipInlineBtn}
+                        onPress={async () => {
+                          await completeTask("tip");
+                          setTipExpanded(false);
+                        }}
+                      >
+                        <CheckCircle size={13} color="#fff" />
+                        <Text style={styles.tipInlineBtnText}>{t("home.tipGotIt")}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {!(isLast && !isVip) && <View style={styles.taskDivider} />}
+                </React.Fragment>
+              );
+            })}
+
+            {/* ── VIP Bonus Tasks (2 items) ── */}
+            {VIP_TASKS.map((task, idx) => {
+              const done = !!taskDone[task.id];
+              const isLast = idx === VIP_TASKS.length - 1;
+              const locked = !isVip;
+
+              return (
+                <React.Fragment key={task.id}>
+                  <View style={[styles.taskRow, isLast && { paddingBottom: 0 }]}>
                     <LinearGradient
                       colors={
                         locked
@@ -868,24 +912,20 @@ export default function HomeScreen() {
                       <Text style={styles.taskThumbEmoji}>{locked ? "🔒" : task.emoji}</Text>
                     </LinearGradient>
 
-                    {/* Info */}
                     <View style={styles.taskInfo}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                         <Text style={[styles.taskName, done && styles.taskNameDone, locked && styles.taskNameLocked, isDark && { color: C.gray900 }]}>
                           {t(task.labelKey)}
                         </Text>
-                        {task.vip && (
-                          <View style={[styles.vipBadge, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}>
-                            <Text style={[styles.vipBadgeText, isDark && { color: C.gray400 }]}>👑 VIP</Text>
-                          </View>
-                        )}
+                        <View style={[styles.vipBadge, isDark && { backgroundColor: C.cardBg, borderWidth: 1, borderColor: C.gray200 }]}>
+                          <Text style={[styles.vipBadgeText, isDark && { color: C.gray400 }]}>VIP</Text>
+                        </View>
                       </View>
                       <Text style={[styles.taskSub, isDark && { color: C.gray400 }]}>
                         {locked ? `${t(task.subKey)} · ${t("home.vipExclusive")}` : t(task.subKey)}
                       </Text>
                     </View>
 
-                    {/* Action */}
                     {!locked && done ? (
                       <CheckCircle size={22} color="#10B981" />
                     ) : locked ? (
@@ -898,31 +938,13 @@ export default function HomeScreen() {
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        onPress={() => handleExtraTaskAction(task)}
+                        onPress={() => handleTaskAction(task)}
                         style={styles.actionBtn}
                       >
                         <Text style={styles.actionBtnText}>{t(task.btnLabelKey)}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
-
-                  {/* Inline tip expand */}
-                  {task.id === "tip" && tipExpanded && !done && (
-                    <View style={styles.tipInline}>
-                      <Text style={styles.tipInlineText}>💡 {aiTip || getStaticTip(t)}</Text>
-                      <TouchableOpacity
-                        style={styles.tipInlineBtn}
-                        onPress={async () => {
-                          await completeExtraTask("tip");
-                          setTipExpanded(false);
-                        }}
-                      >
-                        <CheckCircle size={13} color="#fff" />
-                        <Text style={styles.tipInlineBtnText}>{t("home.tipGotIt")}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
                   {!isLast && <View style={styles.taskDivider} />}
                 </React.Fragment>
               );
@@ -1039,7 +1061,7 @@ export default function HomeScreen() {
         onClose={() => setMoodModalVisible(false)}
         onPick={async () => {
           setMoodModalVisible(false);
-          await completeExtraTask("mood");
+          await completeTask("mood");
         }}
       />
 

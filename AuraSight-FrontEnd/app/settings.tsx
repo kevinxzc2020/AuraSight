@@ -564,7 +564,7 @@ export default function SettingsScreen() {
                 await AsyncStorage.setItem("@aurasight_user_mode", next);
               }
               setUserMode(next as any);
-              Alert.alert(next === "vip" ? "👑 VIP activated!" : "✓ Switched to Free", `Mode is now: ${next}`);
+              Alert.alert(next === "vip" ? "VIP activated!" : "✓ Switched to Free", `Mode is now: ${next}`);
             }}
             isFirst
             isLast

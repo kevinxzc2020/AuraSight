@@ -114,7 +114,12 @@ const STRINGS: Record<string, Record<string, string>> = {
   "home.faceScanSub":          { en: "+50 pts · 30-second face scan",  zh: "+50 分 · 30 秒面部扫描", es: "+50 pts · escaneo facial de 30 segundos" },
   "home.vipExclusive":         { en: "VIP exclusive",                  zh: "VIP 专属",               es: "Exclusivo VIP" },
 
-  // Extra tasks
+  // Daily tasks — free
+  "home.task.autoCheckin":       { en: "Auto Check-in",                  zh: "自动签到",                es: "Registro automático" },
+  "home.task.autoCheckinSub":    { en: "+5 pts · just open the app!",    zh: "+5 分 · 打开 App 即可！", es: "+5 pts · ¡solo abre la app!" },
+  "home.task.autoCheckinBtn":    { en: "Done",                           zh: "已完成",                  es: "Hecho" },
+  "home.task.faceScan":          { en: "Complete a face scan",           zh: "完成一次面部扫描",         es: "Completa un escaneo facial" },
+  "home.task.faceScanSub":       { en: "+50 pts · track your skin today", zh: "+50 分 · 追踪今日皮肤状态", es: "+50 pts · registra tu piel hoy" },
   "home.task.mood":            { en: "Rate your skin mood",            zh: "给你的皮肤心情打分",      es: "Califica tu estado de piel" },
   "home.task.moodSub":         { en: "+10 pts · takes 5 seconds",      zh: "+10 分 · 5 秒完成",      es: "+10 pts · toma 5 segundos" },
   "home.task.moodBtn":         { en: "Rate",                           zh: "打分",                   es: "Calificar" },
