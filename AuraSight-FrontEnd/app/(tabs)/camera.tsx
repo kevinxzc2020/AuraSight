@@ -370,12 +370,12 @@ export default function CameraScreen() {
       setAiResult(null);
 
       Alert.alert(
-        earned === 0 ? "✅ Already Done!" : `🎉 +${earned} pts!`,
+        earned === 0 ? t("camera.alreadyDone") : `🎉 +${earned} pts!`,
         earned === 0
-          ? "You already completed this task today."
-          : `${t("camera.saved")}${ptsRes.streak > 1 ? ` 🔥 ${ptsRes.streak}-day streak!` : ""}`,
+          ? t("camera.alreadyDoneSub")
+          : `${t("camera.saved")}${ptsRes.streak > 1 ? ` ${t("camera.streakInfo", { streak: String(ptsRes.streak) })}` : ""}`,
         [
-          { text: "View History", onPress: () => router.push("/(tabs)/history") },
+          { text: t("camera.viewHistory"), onPress: () => router.push("/(tabs)/history") },
           { text: t("common.ok"), style: "cancel" },
         ],
       );
@@ -659,7 +659,7 @@ export default function CameraScreen() {
                 }}
               >
                 <Text style={[styles.editToggleBtnText, editMode && styles.editToggleBtnTextActive]}>
-                  {editMode ? "✓ Done" : "✏️ Edit"}
+                  {editMode ? t("camera.done") : t("camera.edit")}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -714,7 +714,7 @@ export default function CameraScreen() {
               {!analyzing && !editMode && aiResult && aiResult.detections.length > 0 && (
                 <View style={styles.toggleHint}>
                   <Text style={styles.toggleHintText}>
-                    {showAnnotations ? "👁 Tap to hide" : "👁 Tap to show"}
+                    {showAnnotations ? t("camera.toggleShowAnnotations", { action: t("camera.toggleHide") }) : t("camera.toggleShowAnnotations", { action: t("camera.toggleShow") })}
                   </Text>
                 </View>
               )}
@@ -730,8 +730,8 @@ export default function CameraScreen() {
           >
             <Pressable style={styles.typePickerBackdrop} onPress={() => setPendingAddPos(null)}>
               <View style={styles.typePickerSheet}>
-                <Text style={styles.typePickerTitle}>What type of spot?</Text>
-                <Text style={styles.typePickerSub}>Select the acne type to add</Text>
+                <Text style={styles.typePickerTitle}>{t("camera.typePickerTitle")}</Text>
+                <Text style={styles.typePickerSub}>{t("camera.typePickerSub")}</Text>
                 {(["pustule", "redness", "broken", "scab"] as AcneType[]).map((type) => (
                   <TouchableOpacity
                     key={type}
@@ -766,6 +766,12 @@ export default function CameraScreen() {
           {!analyzing && aiResult && (
             <FadeInComponent delay={200} duration={400} from="bottom">
               <View>
+              {/* AI disclaimer */}
+              <View style={styles.disclaimerRow}>
+                <Text style={styles.disclaimerText}>
+                  ⚠️ {t("camera.disclaimer")}
+                </Text>
+              </View>
               {/* Summary row */}
               <View style={styles.previewSummaryRow}>
                 <View style={styles.previewStat}>
@@ -793,7 +799,7 @@ export default function CameraScreen() {
 
               {/* AI summary */}
               <View style={styles.previewSummaryCard}>
-                <Text style={styles.previewSummaryTitle}>🤖 AI Assessment</Text>
+                <Text style={styles.previewSummaryTitle}>🤖 {t("camera.previewSummary")}</Text>
                 <Text style={styles.previewSummaryText}>{aiResult.summary}</Text>
                 {aiResult.positive ? (
                   <Text style={styles.previewPositive}>✨ {aiResult.positive}</Text>
@@ -803,7 +809,7 @@ export default function CameraScreen() {
               {/* Tips */}
               {aiResult.tips?.length > 0 && (
                 <View style={styles.previewTipsCard}>
-                  <Text style={styles.previewSummaryTitle}>💡 Tips</Text>
+                  <Text style={styles.previewSummaryTitle}>💡 {t("camera.tips")}</Text>
                   {aiResult.tips.map((tip, i) => (
                     <View key={i} style={styles.previewTipRow}>
                       <View style={styles.previewTipDot} />
@@ -1284,6 +1290,24 @@ const styles = StyleSheet.create({
   previewTipRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   previewTipDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#F472B6", marginTop: 6, flexShrink: 0 },
   previewTipText: { flex: 1, fontSize: 12, color: "#6B7280", lineHeight: 18 },
+  disclaimerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(251,191,36,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.2)",
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    gap: 6,
+  },
+  disclaimerText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#92400E",
+    lineHeight: 16,
+  },
   previewNoAI: { backgroundColor: "#FFF9F0", borderRadius: 14, padding: 14, borderWidth: 1, borderColor: "#FDE68A" },
   previewNoAIText: { fontSize: 12, color: "#92400E", textAlign: "center" },
 

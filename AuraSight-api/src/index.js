@@ -155,6 +155,7 @@ app.get("/points/:userId", async (req, res) => {
     res.json({
       total_points: record.total_points,
       streak: record.streak,
+      best_streak: record.best_streak ?? record.streak,
       tasks_today: record.tasks_today,
       unlocked: checkMilestones(record.total_points),
       today_pts:
@@ -226,6 +227,11 @@ app.post("/points/:userId/task", async (req, res) => {
       record.streak = 1;
     }
 
+    // 更新最长连续记录
+    if (!record.best_streak || record.streak > record.best_streak) {
+      record.best_streak = record.streak;
+    }
+
     // 连续打卡奖励（只在今天第一次任务时给）
     const isFirstTaskToday =
       !record.tasks_today.face && !record.tasks_today.body;
@@ -248,6 +254,7 @@ app.post("/points/:userId/task", async (req, res) => {
     res.json({
       total_points: record.total_points,
       streak: record.streak,
+      best_streak: record.best_streak,
       tasks_today: record.tasks_today,
       points_earned: pointsEarned,
       unlocked: checkMilestones(record.total_points),
@@ -1947,26 +1954,49 @@ app.post("/ai/report/:userId", async (req, res) => {
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 1500,
+      max_tokens: 3500,
       messages: [{
         role: "user",
-        content: `You are AuraSight's AI dermatology consultant writing a personalized skin progress report.
+        content: `You are AuraSight's AI dermatology consultant writing a comprehensive, personalized skin progress report.
 ${skinCtx}
 User's data (observation window: ${windowLabel}, ${scans.length} scan${scans.length === 1 ? "" : "s"}):
 - Average skin score: ${avgScore}/100
 - Starting score: ${firstScore}, Latest score: ${lastScore}
+- Score change: ${lastScore - firstScore > 0 ? '+' : ''}${lastScore - firstScore} points
 - Average spots per scan: ${avgSpots}
 - Acne type breakdown: ${JSON.stringify(breakdown)}
 - Trend: ${lastScore > firstScore ? "IMPROVING" : lastScore < firstScore ? "DECLINING" : "STABLE"}
 ${limitedData ? "\nIMPORTANT: The observation window is short and/or scan count is low. DO NOT describe this as a month-long journey or over-interpret trends. Acknowledge the limited data honestly and focus on early patterns rather than confident conclusions.\n" : ""}
-Write a warm, honest, personalized report with these sections:
-1. **Overall Progress** (2-3 sentences, grounded in the actual ${windowLabel} of data — no "over the past month" if the window is shorter)
-2. **What's Working** (1-2 specific positives based on the data${limitedData ? ", or note it's too early to tell if data is too thin" : ""})
-3. **Areas to Focus** (1-2 honest observations)
-4. **${horizonLabel}** (3 specific, actionable recommendations appropriate for this horizon)
-5. **Encouragement** (1 motivating closing sentence)
+Write a thorough, warm, honest, personalized report with these sections. Each section should use ## as the header. Be detailed and specific — do NOT write short, vague paragraphs. Reference actual numbers, acne types, and score changes throughout.
 
-Keep the tone like a friendly dermatologist — professional but warm. Use the actual numbers and the actual window. No generic advice. Never claim more data than exists.`,
+## Overall Progress
+4-5 sentences. Describe their skin journey grounded in the actual ${windowLabel} window. Mention specific score changes (${firstScore} → ${lastScore}), spot counts (avg ${avgSpots}), and which acne types are most prevalent. Compare beginning vs. current state with concrete observations.
+
+## Skin Score Breakdown
+3-4 sentences analyzing their score trajectory. Is it trending up, down, or fluctuating? Mention any patterns you notice. If improving, quantify by how much. If declining, be honest but supportive. Reference the specific acne types found (${JSON.stringify(breakdown)}).
+
+## What's Working
+3-4 bullet points with explanations. Each point should be a specific positive observation from the data with 1-2 sentences explaining why it matters${limitedData ? ". If data is too thin for confident conclusions, note that honestly" : ""}. For example, if certain acne types are decreasing, explain what that indicates about their skin barrier or routine.
+
+## Areas to Focus
+3-4 bullet points with explanations. Identify specific concerns based on their acne breakdown and score trends. Each point should include what the data shows, why it matters, and a brief hint at what might help. Be honest but constructive.
+
+## Personalized Action Plan: ${horizonLabel}
+5-6 actionable recommendations, each with a brief explanation of WHY it will help specifically for their skin profile:
+- Morning routine suggestions (specific to their acne types)
+- Evening routine suggestions
+- Lifestyle adjustments (diet, sleep, hydration)
+- What to avoid (specific triggers for their acne types)
+- When to consider seeing a dermatologist (if relevant)
+Each recommendation should be 1-2 sentences and directly tied to their data.
+
+## What to Expect
+2-3 sentences setting realistic expectations for the ${horizonLabel} based on their current trajectory. Mention approximate timeline for improvement if they follow the recommendations.
+
+## Encouragement
+2-3 motivating sentences that reference their specific progress. Not generic — tie it to their actual numbers and improvements.
+
+Keep the tone like a friendly dermatologist — professional but warm. Use the actual numbers and the actual window. No generic advice. Never claim more data than exists. Format each section with ## headers.`,
       }],
     });
 
@@ -2033,6 +2063,63 @@ Tone: warm coach, not medical.`,
   } catch (err) {
     console.error("AI advice error:", err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /ai/daily-tip — AI 生成每日护肤贴士（全局缓存，每天一条）
+// 不需要 userId——guest 也能看。后端按日期缓存在 DB，一天只调一次 Claude。
+app.get("/ai/daily-tip", async (req, res) => {
+  try {
+    const db = client.db(process.env.DB_NAME);
+    const today = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+
+    // 检查今天是否已生成
+    const cached = await db.collection("daily_tips").findOne({ date: today });
+    if (cached) {
+      return res.json({ tip: cached.tip, date: today });
+    }
+
+    // 调 Claude 生成
+    const anthropic = getAnthropicClient();
+    const message = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 150,
+      messages: [{
+        role: "user",
+        content: `You are a friendly dermatology-trained skincare coach.
+
+Generate ONE daily skincare tip. Requirements:
+- 1-2 sentences only, concise and actionable
+- Cover a RANDOM topic from: ingredient spotlight, lifestyle habit, common mistake, seasonal advice, diet link, product technique, sleep/stress/hydration tip
+- Be specific (name actual ingredients, techniques, or products) — never generic
+- Tone: warm, knowledgeable, like a friend who happens to be a dermatologist
+- Start directly with the tip — no "Did you know" or "Tip:" prefix
+- Today's date: ${today} (use this as a seed for variety — don't repeat yesterday's topic)
+
+Examples of good tips:
+"Niacinamide (vitamin B3) at 5% concentration can reduce pore appearance and even out skin tone in just 4 weeks — look for it in your moisturizer or add a standalone serum."
+"Sleeping on a silk pillowcase reduces friction on your skin overnight, which can help prevent irritation and reduce pillow-induced breakouts on your cheeks."`,
+      }],
+    });
+
+    const tip = message.content[0].text.trim();
+
+    // 缓存到 DB
+    await db.collection("daily_tips").insertOne({
+      date: today,
+      tip,
+      generated_at: new Date(),
+    });
+
+    res.json({ tip, date: today });
+  } catch (err) {
+    console.error("Daily tip error:", err.message);
+    // fallback：返回一条静态 tip 而不是报错
+    res.json({
+      tip: "Stay hydrated — your skin is 64% water. Aim for 8 glasses today and notice the difference in your next scan.",
+      date: new Date().toISOString().slice(0, 10),
+      fallback: true,
+    });
   }
 });
 
@@ -2170,14 +2257,15 @@ app.post("/ai/deep-analysis/:userId", async (req, res) => {
     const anthropic = getAnthropicClient();
     const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
-      max_tokens: 2000,
+      max_tokens: 4000,
       messages: [{
         role: "user",
-        content: `You are AuraSight's senior AI skin consultant performing a deep lifestyle correlation analysis.
+        content: `You are AuraSight's senior AI skin consultant performing a comprehensive deep lifestyle correlation analysis.
 
 SKIN DATA (observation window: ${windowLabel}):
 - ${scans.length} scan${scans.length === 1 ? "" : "s"}, overall avg score: ${Math.round(overallAvg)}/100
 - First score: ${scores[0]}, Latest score: ${scores[scores.length - 1]}
+- Score change: ${scores[scores.length - 1] - scores[0] > 0 ? '+' : ''}${scores[scores.length - 1] - scores[0]} points
 - Acne breakdown: ${JSON.stringify(breakdown)}
 - Weekly trend (only includes weeks with data): ${JSON.stringify(weeklyTrend)}
 
@@ -2186,25 +2274,58 @@ ${tagImpact.length > 0
   ? tagImpact.map(t => `- "${t.tag}": appeared ${t.count}x, avg skin score ${t.avg_score} (${t.impact > 0 ? '+' : ''}${t.impact} vs baseline)`).join('\n')
   : '- No diary tags recorded yet'}
 ${limitedData ? "\nIMPORTANT: Observation window is short and/or scan count is low. Do NOT pretend this is a month of data. Flag low confidence, avoid over-interpreting tag correlations that only appeared a handful of times, and scale all predictions/experiments to the available window.\n" : ""}
-Based on this data, provide a deep analysis in this exact JSON format:
+Based on this data, provide a DETAILED deep analysis in this exact JSON format. Be thorough — each finding should be insightful and data-driven, not generic:
 {
   "headline": "One punchy headline summarizing their skin journey so far (match the actual window — no '30-day journey' if the window is shorter)",
   "overall_trend": "improving | declining | stable | fluctuating | too_early",
+  "trend_detail": "3-4 sentence detailed narrative about their overall skin trend. Reference specific score changes week-over-week, which acne types are increasing or decreasing, and what the trajectory suggests. Be specific with numbers.",
   "data_confidence": "high | medium | low (low if window < 7 days or scans < 5)",
   "lifestyle_insights": [
     {
-      "factor": "factor name (e.g. Sleep quality, Hydration, Diet, Stress)",
-      "finding": "1-2 sentence finding based on diary data or inferred from patterns",
+      "factor": "factor name (e.g. Sleep quality, Hydration, Diet, Stress, Exercise, Alcohol, etc.)",
+      "finding": "3-4 sentence detailed finding. Explain what the data shows, why this factor likely affects their skin, the mechanism behind it (e.g. cortisol → inflammation → breakouts), and what specifically they should do about it.",
       "impact": "positive | negative | neutral",
-      "score_effect": "+X or -X points on skin score (estimate; omit if confidence is low)"
+      "score_effect": "+X or -X points on skin score (estimate; use 'uncertain' if confidence is low)",
+      "recommendation": "1-2 sentence specific, actionable advice for this factor"
     }
   ],
-  "best_habit": "The single most beneficial habit identified from their data (or null if too early)",
-  "worst_habit": "The single most harmful pattern (or null if too early)",
-  "weekly_pattern": "Any day-of-week or weekly pattern observed (or null if data < 1 week)",
-  "next_experiment": "One specific lifestyle experiment to try in the ${horizonLabel}",
-  "prediction": "If they maintain current trajectory, skin score in the ${horizonLabel} will be approximately X (or 'too early to predict' if confidence is low)"
-}`
+  "acne_type_analysis": [
+    {
+      "type": "acne type name (pustule, redness, broken, scab)",
+      "count": total count from data,
+      "trend": "increasing | decreasing | stable",
+      "explanation": "2-3 sentences explaining what this acne type indicates about their skin health, what typically causes it, and how to address it specifically"
+    }
+  ],
+  "best_habit": "2-3 sentences about the single most beneficial habit, why it works for their skin type, and how to maximize its benefit",
+  "worst_habit": "2-3 sentences about the most harmful pattern, the biological mechanism of why it hurts their skin, and specific steps to change it (or null if too early)",
+  "weekly_pattern": "2-3 sentences about any day-of-week or weekly patterns observed — e.g. worse skin on Mondays (weekend diet?), better mid-week (consistent routine?). Include advice on how to smooth out the pattern (or null if data < 1 week)",
+  "score_comparison": {
+    "first_score": ${scores[0]},
+    "latest_score": ${scores[scores.length - 1]},
+    "change": ${scores[scores.length - 1] - scores[0]},
+    "analysis": "2-3 sentences comparing their starting point to now, what the change means in practical terms, and whether the rate of change is typical"
+  },
+  "next_experiments": [
+    {
+      "experiment": "Specific lifestyle experiment to try",
+      "duration": "How long to try it (e.g. '7 days', '2 weeks')",
+      "expected_impact": "What improvement to expect and how to measure it",
+      "why": "Why this experiment is specifically relevant for their data"
+    }
+  ],
+  "personalized_routine": {
+    "morning": "2-3 step morning routine recommendation specific to their acne types and skin profile",
+    "evening": "2-3 step evening routine recommendation",
+    "weekly": "1-2 weekly treatments or habits to add"
+  },
+  "prediction": "2-3 sentences: If they maintain current trajectory, predict skin score in the ${horizonLabel}. Explain what factors will most influence the outcome. Be specific but honest about confidence level."
+}
+
+Generate 4-6 lifestyle_insights (cover different factors, not just diary tags — also infer from acne patterns).
+Generate an acne_type_analysis entry for each acne type present in their data.
+Generate 2-3 next_experiments.
+Every field should be substantive and data-driven, NOT generic skincare advice.`
       }]
     });
 
@@ -2212,19 +2333,49 @@ Based on this data, provide a deep analysis in this exact JSON format:
     const json = raw.replace(/^```json?\s*/i, "").replace(/\s*```$/i, "");
     const analysis = JSON.parse(json);
 
-    res.json({
+    const result = {
       ...analysis,
       tag_impact: tagImpact,
       overall_avg: Math.round(overallAvg),
       weekly_trend: weeklyTrend,
       scan_count: scans.length,
-      span_days: spanDays,        // 真实观察窗口（天）
-      window_label: windowLabel,  // 给 UI 用的可读文案
-      limited_data: limitedData,  // UI 可据此显示低置信度 badge
+      span_days: spanDays,
+      window_label: windowLabel,
+      limited_data: limitedData,
       generated_at: new Date().toISOString(),
-    });
+    };
+
+    // ── 持久化到 deep_analyses 集合 ──────────────────────────
+    try {
+      await db.collection("deep_analyses").insertOne({
+        user_id: userId,
+        ...result,
+        created_at: new Date(),
+      });
+    } catch (saveErr) {
+      console.error("Failed to save deep analysis:", saveErr.message);
+      // 存储失败不影响返回结果
+    }
+
+    res.json(result);
   } catch (err) {
     console.error("Deep analysis error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /ai/deep-analysis/:userId — 获取历史 Deep Analysis 列表
+app.get("/ai/deep-analysis/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const db = client.db(process.env.DB_NAME);
+    const records = await db.collection("deep_analyses")
+      .find({ user_id: userId })
+      .sort({ created_at: -1 })
+      .toArray();
+    res.json(records.map(r => ({ ...r, _id: r._id.toString() })));
+  } catch (err) {
+    console.error("Deep analysis history error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

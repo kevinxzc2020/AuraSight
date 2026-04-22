@@ -21,7 +21,6 @@ import {
   Bell,
   Globe,
   Moon,
-  Star,
   MessageSquare,
   Shield,
   FileText,
@@ -428,13 +427,13 @@ export default function SettingsScreen() {
             iconBg={isDark ? C.gray200 : "#f0f9ff"}
             iconEl={<Shield size={15} color="#3b82f6" />}
             label={t("settings.privacyPolicy")}
-            onPress={() => Linking.openURL("https://aurasight.app/privacy")}
+            onPress={() => router.push("/privacy")}
           />
           <Row
             iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<FileText size={15} color={Colors.emerald} />}
             label={t("settings.terms")}
-            onPress={() => Linking.openURL("https://aurasight.app/terms")}
+            onPress={() => router.push("/terms")}
             isLast
           />
         </View>
@@ -520,23 +519,6 @@ export default function SettingsScreen() {
         <Text style={[st.sectionLabel, isDark && { color: C.gray400 }]}>{t("settings.section.help")}</Text>
         <View style={[st.card, S.card, isDark && dkCard]}>
           <Row
-            iconBg={isDark ? C.gray200 : "#fefce8"}
-            iconEl={<Star size={15} color="#eab308" />}
-            label={t("settings.rate")}
-            sub={t("settings.rate.sub")}
-            onPress={() => {
-              const url =
-                Platform.OS === "ios"
-                  ? "https://apps.apple.com/app/idXXXXXXXXX?action=write-review"
-                  : "https://play.google.com/store/apps/details?id=com.aurasight";
-              Alert.alert(t("settings.rate.alertTitle"), t("settings.rate.alertMsg"), [
-                { text: t("common.cancel"), style: "cancel" },
-                { text: t("common.open"), onPress: () => Linking.openURL(url) },
-              ]);
-            }}
-            isFirst
-          />
-          <Row
             iconBg={isDark ? C.gray200 : "#f0fdf4"}
             iconEl={<MessageSquare size={15} color={Colors.emerald} />}
             label={t("settings.sendFeedback")}
@@ -546,6 +528,7 @@ export default function SettingsScreen() {
                 "mailto:hello@aurasight.app?subject=AuraSight Feedback",
               )
             }
+            isFirst
             isLast
           />
         </View>
@@ -558,6 +541,7 @@ export default function SettingsScreen() {
             iconEl={<Info size={15} color="#8b5cf6" />}
             label={t("settings.version")}
             value={`v${APP_VERSION}`}
+            onPress={() => router.push("/about")}
             isFirst
             isLast
           />

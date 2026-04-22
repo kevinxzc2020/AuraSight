@@ -14,6 +14,7 @@ import {
   Pressable,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -114,7 +115,7 @@ function CommentSection({
 
   async function pickCommentImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") { Alert.alert("🖼️", "Please allow photo access."); return; }
+    if (status !== "granted") { Alert.alert(t("community.photoPermissionAlert"), t("community.photoPermissionMsgComments")); return; }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true, quality: 0.6, base64: true,
@@ -397,7 +398,7 @@ export default function CommunityScreen() {
   async function pickImage() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("🖼️", "Please allow photo access to attach images."); // TODO: Add i18n key for permission alert
+      Alert.alert(t("community.photoPermissionAlert"), t("community.photoPermissionMsg"));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -452,8 +453,8 @@ export default function CommunityScreen() {
           onLike={handleLike} onDelete={handleDelete}
           onImagePress={setLightboxUri} t={t}
         />
-        {/* 每 3 个帖子后插一个广告 */}
-        {(index + 1) % 3 === 0 && <AdBanner style={{ marginHorizontal: 16, marginBottom: 8 }} />}
+        {/* 每 5 个帖子后插一个广告 */}
+        {(index + 1) % 5 === 0 && <AdBanner style={{ marginHorizontal: 16, marginBottom: 8 }} />}
       </View>
     </FadeInComponent>
   ), [myId, myName, isDark, C, t]);

@@ -52,6 +52,7 @@ import {
   Scan,
   BarChart3,
   MessageCircle,
+  Star,
 } from "lucide-react-native";
 import {
   Colors,
@@ -94,10 +95,6 @@ import {
 } from "../../lib/notifications";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
-
-// Privacy / Terms 暂时指向占位 URL，后端部署落地后换成正式 URL
-const PRIVACY_URL = "https://aurasight.app/privacy";
-const TERMS_URL = "https://aurasight.app/terms";
 
 interface AppUser {
   id: string;
@@ -616,338 +613,427 @@ export default function ProfileScreen() {
   // ─── 已登录 ───────────────────────────────────────────────
   if (user) {
     const stats = meta.stats;
+    const isVip = user.mode === "vip";
+    const skinScore = stats?.avg_skin_score ?? null;
+    const scoreLabel = skinScore !== null
+      ? skinScore >= 80 ? "Excellent" : skinScore >= 60 ? "Good" : skinScore >= 40 ? "Fair" : "Needs care"
+      : null;
+    const scoreColor = skinScore !== null
+      ? skinScore >= 80 ? "#10B981" : skinScore >= 60 ? "#3B82F6" : skinScore >= 40 ? "#F59E0B" : "#EF4444"
+      : Colors.gray400;
+
     return (
       <LinearGradient colors={isDark ? [C.background, C.background, C.cardBg] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={styles.container}>
         <SafeAreaView style={styles.safeArea} edges={["top"]}>
+          {/* ── Top bar ── */}
           <View style={styles.topNav}>
             <Text style={[styles.topNavTitle, isDark && { color: C.gray900 }]}>{t("profile.title")}</Text>
             <TouchableOpacity
               onPress={() => router.push("/settings")}
-              style={styles.settingsBtn}
+              style={[styles.settingsBtn, isDark && { backgroundColor: C.cardBg }]}
             >
-              <Settings size={22} color={isDark ? C.gray400 : Colors.gray500} />
+              <Settings size={20} color={isDark ? C.gray400 : Colors.gray500} />
             </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={styles.scrollContent}>
-            {/* ── 头像 + 名字 ── */}
-            <View style={styles.avatarSection}>
-              <TouchableOpacity
-                onPress={handleAvatarTap}
-                activeOpacity={0.85}
-                style={styles.avatarWrap}
-              >
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <LinearGradient
-                    colors={Gradients.roseMain}
-                    style={styles.avatar}
-                  >
-                    <Text style={styles.avatarText}>
-                      {user.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </LinearGradient>
-                )}
-                {/* 右下角小相机图标提示可点 */}
-                <View style={styles.avatarEditBadge}>
-                  {avatarUploading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <CameraIcon size={12} color="#fff" />
-                  )}
-                </View>
-              </TouchableOpacity>
-              <Text style={[styles.profileName, isDark && { color: C.gray900 }]}>{user.name}</Text>
-              <Text style={[styles.profileEmail, isDark && { color: C.gray400 }]}>{user.email}</Text>
-              {user.mode === "vip" && (
-                <View style={styles.vipTag}>
-                  <Crown size={12} color="#fde68a" />
-                  <Text style={styles.vipTagText}>{t("profile.vipBadge")}</Text>
-                </View>
-              )}
-            </View>
 
-            {/* ── VIP 升级卡（非 VIP 才显示） ── */}
-            {user.mode !== "vip" && (
-              <TouchableOpacity
-                onPress={() => router.push("/vip")}
-                activeOpacity={0.9}
+          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
+            {/* ══════ HERO HEADER ══════ */}
+            <FadeInComponent delay={0} duration={500} from="bottom">
+              <LinearGradient
+                colors={isDark ? ["#2A1F35", "#1E1528"] : ["#F43F8F", "#F472B6", "#FB9FBD"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.heroHeader}
               >
-                <LinearGradient
-                  colors={["#f472b6", "#fb7185"]}
-                  style={styles.vipCard}
+                {/* Decorative glows */}
+                <View style={styles.heroGlow1} />
+                <View style={styles.heroGlow2} />
+
+                {/* Avatar */}
+                <TouchableOpacity
+                  onPress={handleAvatarTap}
+                  activeOpacity={0.85}
+                  style={styles.avatarWrap}
                 >
-                  <Crown size={20} color="#fde68a" />
-                  <View style={styles.vipCardText}>
-                    <Text style={styles.vipCardTitle}>{t("common.upgrade")}</Text>
-                    <Text style={styles.vipCardSub}>
-                      Try free 7 days · then $4.99/mo or $34.99/yr
-                    </Text>
+                  <View style={styles.avatarRing}>
+                    {avatarUrl ? (
+                      <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                    ) : (
+                      <LinearGradient
+                        colors={["rgba(255,255,255,0.3)", "rgba(255,255,255,0.1)"]}
+                        style={styles.avatar}
+                      >
+                        <Text style={styles.avatarText}>
+                          {user.name.charAt(0).toUpperCase()}
+                        </Text>
+                      </LinearGradient>
+                    )}
                   </View>
-                  <ChevronRight size={20} color="#fff" />
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
+                  <View style={styles.avatarEditBadge}>
+                    {avatarUploading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <CameraIcon size={11} color="#fff" />
+                    )}
+                  </View>
+                </TouchableOpacity>
 
-            {/* ── Your Journey 数据卡 ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Your Journey</Text>
-            <StaggeredList stagger={50} from="bottom" style={styles.statsGrid} itemStyle={{ flexGrow: 1, flexBasis: "22%", minWidth: 72 }}>
-              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
-                  {meta.daysSinceJoined ?? "—"}
-                </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Days in</Text>
-              </View>
-              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>{stats?.total_scans ?? 0}</Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.totalScans")}</Text>
-              </View>
-              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-                <View style={styles.statInline}>
-                  <Flame size={14} color="#fb923c" />
+                <Text style={styles.heroName}>{user.name}</Text>
+                <Text style={styles.heroEmail}>{user.email}</Text>
+
+                {isVip && (
+                  <View style={styles.vipTag}>
+                    <Crown size={11} color="#fde68a" />
+                    <Text style={styles.vipTagText}>{t("profile.vipBadge")}</Text>
+                  </View>
+                )}
+
+                {/* Skin Score mini badge */}
+                {skinScore !== null && (
+                  <View style={styles.heroScoreBadge}>
+                    <View style={[styles.heroScoreDot, { backgroundColor: scoreColor }]} />
+                    <Text style={styles.heroScoreVal}>{skinScore}</Text>
+                    <Text style={styles.heroScoreLbl}>{scoreLabel}</Text>
+                  </View>
+                )}
+              </LinearGradient>
+            </FadeInComponent>
+
+            {/* ══════ STATS ROW ══════ */}
+            <FadeInComponent delay={80} duration={400} from="bottom">
+              <View style={styles.statsGrid}>
+                <View style={[styles.statCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                  <LinearGradient colors={["#EFF6FF", "#DBEAFE"]} style={styles.statIconBg}>
+                    <Text style={{ fontSize: 14 }}>📅</Text>
+                  </LinearGradient>
+                  <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
+                    {meta.daysSinceJoined ?? "—"}
+                  </Text>
+                  <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>Days</Text>
+                </View>
+                <View style={[styles.statCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                  <LinearGradient colors={["#FFF0F6", "#FCE7F3"]} style={styles.statIconBg}>
+                    <Text style={{ fontSize: 14 }}>📸</Text>
+                  </LinearGradient>
+                  <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>{stats?.total_scans ?? 0}</Text>
+                  <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.totalScans")}</Text>
+                </View>
+                <View style={[styles.statCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                  <LinearGradient colors={["#FFF7ED", "#FFEDD5"]} style={styles.statIconBg}>
+                    <Flame size={14} color="#fb923c" />
+                  </LinearGradient>
                   <Text style={[styles.statVal, { color: "#fb923c" }]}>
                     {stats?.streak ?? 0}
                   </Text>
+                  <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.streak")}</Text>
                 </View>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.streak")}</Text>
+                <View style={[styles.statCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                  <LinearGradient colors={["#ECFDF5", "#D1FAE5"]} style={styles.statIconBg}>
+                    <Text style={{ fontSize: 14 }}>💯</Text>
+                  </LinearGradient>
+                  <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
+                    {stats?.avg_skin_score ?? "—"}
+                  </Text>
+                  <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.avgScore")}</Text>
+                </View>
               </View>
-              <View style={[styles.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-                <Text style={[styles.statVal, isDark && { color: C.gray900 }]}>
-                  {stats?.avg_skin_score ?? "—"}
-                </Text>
-                <Text style={[styles.statLbl, isDark && { color: C.gray400 }]}>{t("profile.avgScore")}</Text>
-              </View>
-            </StaggeredList>
+            </FadeInComponent>
 
-            {/* ── 快捷操作 ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Quick actions</Text>
-            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => router.push("/(tabs)/report")}
-                activeOpacity={0.7}
-              >
-                <Sparkles size={16} color={Colors.rose400} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("report.title")}</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    Trends, correlations, AI summary
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => router.push("/(tabs)/history")}
-                activeOpacity={0.7}
-              >
-                <CameraIcon size={16} color={Colors.rose400} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Scan history</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {stats?.total_scans ?? 0} {t("profile.totalScans")}
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={Colors.gray400} />
-              </TouchableOpacity>
-              {/* ── body composition 暂时隐藏 ──
-              {user.mode === "vip" && (
-                <>
-                  <View style={styles.divider} />
-                  <TouchableOpacity
-                    style={styles.rowBtn}
-                    onPress={() => router.push("/body-composition")}
-                    activeOpacity={0.7}
+            {/* ══════ VIP UPGRADE (non-VIP only) ══════ */}
+            {!isVip && (
+              <FadeInComponent delay={120} duration={400} from="bottom">
+                <TouchableOpacity
+                  onPress={() => router.push("/vip")}
+                  activeOpacity={0.9}
+                >
+                  <LinearGradient
+                    colors={["#7C3AED", "#A855F7", "#C084FC"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.vipCard}
                   >
-                    <Activity size={16} color={Colors.rose400} />
-                    <View style={styles.rowBtnText}>
-                      <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Body composition</Text>
-                      <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                        {meta.latestBodyComp
-                          ? `Latest: ${meta.latestBodyComp.bodyFatPct}% body fat`
-                          : "Log your first measurement"}
+                    <View style={styles.vipCardGlow} />
+                    <View style={styles.vipIconBg}>
+                      <Crown size={18} color="#fde68a" />
+                    </View>
+                    <View style={styles.vipCardText}>
+                      <Text style={styles.vipCardTitle}>Upgrade to VIP</Text>
+                      <Text style={styles.vipCardSub}>
+                        Free 7-day trial · then $4.99/mo
                       </Text>
                     </View>
-                    <ChevronRight size={16} color={Colors.gray400} />
-                  </TouchableOpacity>
-                </>
-              )}
-              ── end hidden ── */}
-            </View>
+                    <ChevronRight size={18} color="rgba(255,255,255,0.7)" />
+                  </LinearGradient>
+                </TouchableOpacity>
+              </FadeInComponent>
+            )}
 
-            {/* ── My Data ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>My data</Text>
-            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={handleExportData}
-                activeOpacity={0.7}
-              >
-                <Download size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Export my data</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    JSON copy of scans & diary
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={handleDeleteAccount}
-                activeOpacity={0.7}
-              >
-                <Trash2 size={16} color={Colors.red} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, { color: Colors.red }]}>
-                    Delete account
-                  </Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Permanent, can't be undone</Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-            </View>
-
-            {/* ── Account settings ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Account settings</Text>
-            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => setEditProfileOpen(true)}
-                activeOpacity={0.7}
-              >
-                <Edit3 size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Edit profile</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>{user.name} · {user.email}</Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => setChangePwOpen(true)}
-                activeOpacity={0.7}
-              >
-                <Lock size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Change password</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Keep your account secure</Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => setHealthOpen(true)}
-                activeOpacity={0.7}
-              >
-                <Sparkles size={16} color={isDark ? C.gray400 : Colors.rose400} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("profile.skinProfile")}</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {formatHealthSummary(health, t)}
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <View style={styles.rowBtn}>
-                <Bell size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Daily reminder</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {reminderOn ? `On · ${reminderLabel}` : "Off"}
-                  </Text>
-                </View>
-                <Switch
-                  value={reminderOn}
-                  onValueChange={handleToggleReminder}
-                  trackColor={{ true: Colors.rose400, false: Colors.gray200 }}
-                  thumbColor="#fff"
-                />
+            {/* ══════ QUICK ACTIONS ══════ */}
+            <FadeInComponent delay={160} duration={400} from="bottom">
+              <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Quick actions</Text>
+              <View style={[styles.section, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => router.push("/(tabs)/report")}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#FFF0F6", "#FCE7F3"]} style={styles.rowIconBg}>
+                    <Sparkles size={15} color={Colors.rose400} />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("report.title")}</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      Trends, correlations, AI summary
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => router.push("/(tabs)/history")}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#EFF6FF", "#DBEAFE"]} style={styles.rowIconBg}>
+                    <CameraIcon size={15} color="#3B82F6" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Scan history</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      {`${stats?.total_scans ?? 0} ${t("profile.totalScans")}`}
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
               </View>
-            </View>
+            </FadeInComponent>
 
-            {/* ── Invite friends ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Invite friends</Text>
-            <TouchableOpacity
-              onPress={() => setInviteOpen(true)}
-              activeOpacity={0.85}
-            >
-              <LinearGradient
-                colors={["#FB923C", "#F43F8F"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.inviteCard}
-              >
-                <Gift size={22} color="#fff" />
-                <View style={styles.inviteCardText}>
-                  <Text style={styles.inviteCardTitle}>
-                    Give 30 days, get 30 days
-                  </Text>
-                  <Text style={styles.inviteCardSub}>
-                    {referral
-                      ? `Your code: ${referral.code}${
-                          referral.redemptions > 0
-                            ? ` · ${referral.redemptions} friends joined`
-                            : ""
-                        }`
-                      : "Tap to get your referral code"}
-                  </Text>
-                </View>
-                <ChevronRight size={20} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* ── About ── */}
-            <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>About</Text>
-            <View style={[styles.section, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <View style={styles.rowBtn}>
-                <Info size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Version</Text>
-                  <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
-                    {Constants.expoConfig?.version ?? "—"}
-                    {Constants.expoConfig?.runtimeVersion
-                      ? ` · runtime ${Constants.expoConfig.runtimeVersion}`
-                      : ""}
-                  </Text>
+            {/* ══════ ACCOUNT SETTINGS ══════ */}
+            <FadeInComponent delay={200} duration={400} from="bottom">
+              <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Account</Text>
+              <View style={[styles.section, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => setEditProfileOpen(true)}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#F5F3FF", "#EDE9FE"]} style={styles.rowIconBg}>
+                    <Edit3 size={15} color="#7C3AED" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Edit profile</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>{`${user.name} · ${user.email}`}</Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => setChangePwOpen(true)}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#FEF3C7", "#FDE68A"]} style={styles.rowIconBg}>
+                    <Lock size={15} color="#D97706" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Change password</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Keep your account secure</Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => setHealthOpen(true)}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#FFF0F6", "#FCE7F3"]} style={styles.rowIconBg}>
+                    <Sparkles size={15} color={Colors.rose400} />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>{t("profile.skinProfile")}</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      {formatHealthSummary(health, t)}
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <View style={styles.rowBtn}>
+                  <LinearGradient colors={["#ECFDF5", "#D1FAE5"]} style={styles.rowIconBg}>
+                    <Bell size={15} color="#10B981" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Daily reminder</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      {reminderOn ? `On · ${reminderLabel}` : "Off"}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={reminderOn}
+                    onValueChange={handleToggleReminder}
+                    trackColor={{ true: Colors.rose400, false: isDark ? C.gray200 : Colors.gray200 }}
+                    thumbColor="#fff"
+                  />
                 </View>
               </View>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => Linking.openURL(PRIVACY_URL)}
-                activeOpacity={0.7}
-              >
-                <Shield size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Privacy policy</Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-              <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
-              <TouchableOpacity
-                style={styles.rowBtn}
-                onPress={() => Linking.openURL(TERMS_URL)}
-                activeOpacity={0.7}
-              >
-                <FileText size={16} color={isDark ? C.gray400 : Colors.gray500} />
-                <View style={styles.rowBtnText}>
-                  <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Terms of service</Text>
-                </View>
-                <ChevronRight size={16} color={isDark ? C.gray400 : Colors.gray400} />
-              </TouchableOpacity>
-            </View>
+            </FadeInComponent>
 
-            {/* ── 登出 ── */}
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-              <LogOut size={16} color={Colors.red} />
-              <Text style={styles.logoutText}>{t("common.signIn")}</Text>
-            </TouchableOpacity>
+            {/* ══════ INVITE FRIENDS ══════ */}
+            <FadeInComponent delay={240} duration={400} from="bottom">
+              <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>Invite friends</Text>
+              <TouchableOpacity
+                onPress={() => setInviteOpen(true)}
+                activeOpacity={0.85}
+              >
+                <LinearGradient
+                  colors={["#FB923C", "#F43F8F"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.inviteCard}
+                >
+                  <View style={styles.inviteGlow} />
+                  <View style={styles.inviteIconBg}>
+                    <Gift size={18} color="#FB923C" />
+                  </View>
+                  <View style={styles.inviteCardText}>
+                    <Text style={styles.inviteCardTitle}>
+                      Give 30 days, get 30 days
+                    </Text>
+                    <Text style={styles.inviteCardSub}>
+                      {referral
+                        ? `Code: ${referral.code}${
+                            referral.redemptions > 0
+                              ? ` · ${referral.redemptions} friends joined`
+                              : ""
+                          }`
+                        : "Tap to get your referral code"}
+                    </Text>
+                  </View>
+                  <ChevronRight size={18} color="rgba(255,255,255,0.7)" />
+                </LinearGradient>
+              </TouchableOpacity>
+            </FadeInComponent>
+
+            {/* ══════ ABOUT & DATA ══════ */}
+            <FadeInComponent delay={280} duration={400} from="bottom">
+              <Text style={[styles.groupLabel, isDark && { color: C.gray400 }]}>More</Text>
+              <View style={[styles.section, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => {
+                    const url =
+                      Platform.OS === "ios"
+                        ? "https://apps.apple.com/app/idXXXXXXXXX?action=write-review"
+                        : "https://play.google.com/store/apps/details?id=com.aurasight";
+                    Alert.alert(t("settings.rate.alertTitle"), t("settings.rate.alertMsg"), [
+                      { text: t("common.cancel"), style: "cancel" },
+                      { text: t("common.open"), onPress: () => Linking.openURL(url) },
+                    ]);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#FEFCE8", "#FEF3C7"]} style={styles.rowIconBg}>
+                    <Star size={15} color="#EAB308" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Rate AuraSight</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      Leave a review on app store
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={handleExportData}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#EFF6FF", "#DBEAFE"]} style={styles.rowIconBg}>
+                    <Download size={15} color="#3B82F6" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Export my data</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      JSON copy of scans & diary
+                    </Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <View style={styles.rowBtn}>
+                  <LinearGradient colors={["#F3F4F6", "#E5E7EB"]} style={styles.rowIconBg}>
+                    <Info size={15} color={Colors.gray500} />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Version</Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>
+                      {Constants.expoConfig?.version ?? "—"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => router.push("/privacy")}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#ECFDF5", "#D1FAE5"]} style={styles.rowIconBg}>
+                    <Shield size={15} color="#10B981" />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Privacy policy</Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+                <View style={[styles.divider, isDark && { backgroundColor: C.gray200 }]} />
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={() => router.push("/terms")}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient colors={["#F3F4F6", "#E5E7EB"]} style={styles.rowIconBg}>
+                    <FileText size={15} color={Colors.gray500} />
+                  </LinearGradient>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, isDark && { color: C.gray900 }]}>Terms of service</Text>
+                  </View>
+                  <ChevronRight size={15} color={isDark ? C.gray400 : Colors.gray300} />
+                </TouchableOpacity>
+              </View>
+            </FadeInComponent>
+
+            {/* ── Danger zone ── */}
+            <FadeInComponent delay={320} duration={400} from="bottom">
+              <View style={[styles.section, styles.dangerSection, isDark && { backgroundColor: C.cardBg, borderColor: "rgba(239,68,68,0.15)" }]}>
+                <TouchableOpacity
+                  style={styles.rowBtn}
+                  onPress={handleDeleteAccount}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.dangerIconBg}>
+                    <Trash2 size={15} color="#EF4444" />
+                  </View>
+                  <View style={styles.rowBtnText}>
+                    <Text style={[styles.rowBtnTitle, { color: "#EF4444" }]}>
+                      Delete account
+                    </Text>
+                    <Text style={[styles.rowBtnSub, isDark && { color: C.gray400 }]}>Permanent, can't be undone</Text>
+                  </View>
+                  <ChevronRight size={15} color="rgba(239,68,68,0.3)" />
+                </TouchableOpacity>
+              </View>
+            </FadeInComponent>
+
+            {/* ── Sign out ── */}
+            <FadeInComponent delay={350} duration={400} from="none">
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+                <LogOut size={15} color={Colors.gray400} />
+                <Text style={[styles.logoutText, isDark && { color: C.gray400 }]}>{t("common.signOut")}</Text>
+              </TouchableOpacity>
+            </FadeInComponent>
 
             {/* ── Modals ── */}
             <EditProfileModal
@@ -1139,11 +1225,11 @@ export default function ProfileScreen() {
 
             {/* ── Privacy / Terms ── */}
             <View style={styles.legalRow}>
-              <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+              <TouchableOpacity onPress={() => router.push("/privacy")}>
                 <Text style={styles.legalLink}>Privacy Policy</Text>
               </TouchableOpacity>
               <Text style={styles.legalDot}>·</Text>
-              <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
+              <TouchableOpacity onPress={() => router.push("/terms")}>
                 <Text style={styles.legalLink}>Terms of Service</Text>
               </TouchableOpacity>
             </View>
@@ -1426,18 +1512,18 @@ const CONCERN_OPTIONS: { id: SkinConcern; emoji: string; label: string }[] = [
 ];
 
 const ROUTINE_LEVELS: { id: RoutineLevel; emoji: string; label: string; desc: string }[] = [
-  { id: "none",     emoji: "🚫", label: "None",     desc: "No routine yet" },
-  { id: "simple",   emoji: "🧴", label: "Simple",   desc: "Cleanser + moisturizer" },
-  { id: "moderate", emoji: "🧪", label: "Moderate", desc: "+ serums / SPF" },
-  { id: "complex",  emoji: "💎", label: "Complex",  desc: "Full multi-step" },
+  { id: "none",     emoji: "🚫", label: "None",     desc: "I don't have a skincare routine" },
+  { id: "simple",   emoji: "🧴", label: "Simple",   desc: "Just cleanser + moisturizer" },
+  { id: "moderate", emoji: "🧪", label: "Moderate", desc: "Cleanser, serum, SPF & moisturizer" },
+  { id: "complex",  emoji: "💎", label: "Complex",  desc: "Full multi-step with actives & treatments" },
 ];
 
-const CLIMATE_OPTIONS: { id: Climate; emoji: string; label: string }[] = [
-  { id: "humid",     emoji: "🌊", label: "Humid" },
-  { id: "dry",       emoji: "☀️", label: "Dry" },
-  { id: "temperate", emoji: "🌤️", label: "Temperate" },
-  { id: "tropical",  emoji: "🌴", label: "Tropical" },
-  { id: "cold",      emoji: "❄️", label: "Cold" },
+const CLIMATE_OPTIONS: { id: Climate; emoji: string; label: string; desc: string }[] = [
+  { id: "humid",     emoji: "🌊", label: "Humid",      desc: "Hot & muggy, skin feels sticky" },
+  { id: "dry",       emoji: "☀️", label: "Dry / Arid",  desc: "Low humidity, skin feels tight" },
+  { id: "temperate", emoji: "🌤️", label: "Temperate",   desc: "Mild seasons, moderate humidity" },
+  { id: "tropical",  emoji: "🌴", label: "Tropical",    desc: "Year-round heat & humidity" },
+  { id: "cold",      emoji: "❄️", label: "Cold",        desc: "Long winters, dry indoor heating" },
 ];
 
 function HealthProfileModal({
@@ -1517,11 +1603,12 @@ function HealthProfileModal({
       <ScrollView style={{ maxHeight: 460 }} showsVerticalScrollIndicator={false}>
         {/* ── 提示语 ── */}
         <Text style={[styles.modalHint, dkTxt, { marginBottom: 10 }]}>
-          Helps AI give you personalized skincare advice.
+          The more we know, the better our AI can tailor scan results and recommendations to your unique skin.
         </Text>
 
         {/* ── 肤质 ── */}
         <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.skinType")}</Text>
+        <Text style={[spStyles.sectionDesc, dkTxt]}>Not sure? If your T-zone gets oily but cheeks feel dry, you're likely "Combination."</Text>
         <View style={spStyles.chipWrap}>
           {SKIN_TYPES.map(st => (
             <Chip key={st.id} active={skinType === st.id} emoji={st.emoji} label={st.label}
@@ -1540,18 +1627,20 @@ function HealthProfileModal({
 
         {/* ── 护肤习惯 ── */}
         <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.routine")}</Text>
+        <Text style={[spStyles.sectionDesc, dkTxt]}>Your routine level helps AI gauge which products and ingredients to recommend.</Text>
         <View style={spStyles.chipWrap}>
           {ROUTINE_LEVELS.map(rl => (
-            <Chip key={rl.id} active={routineLevel === rl.id} emoji={rl.emoji} label={rl.label}
+            <Chip key={rl.id} active={routineLevel === rl.id} emoji={rl.emoji} label={`${rl.label} — ${rl.desc}`}
               onPress={() => setRoutineLevel(routineLevel === rl.id ? "" : rl.id)} wide />
           ))}
         </View>
 
         {/* ── 气候 ── */}
         <Text style={[spStyles.sectionTitle, dkTxt2]}>{t("profile.sp.climate")}</Text>
+        <Text style={[spStyles.sectionDesc, dkTxt]}>Climate affects oil production, hydration, and how your skin reacts — AI adjusts advice accordingly.</Text>
         <View style={spStyles.chipWrap}>
           {CLIMATE_OPTIONS.map(cl => (
-            <Chip key={cl.id} active={climate === cl.id} emoji={cl.emoji} label={cl.label}
+            <Chip key={cl.id} active={climate === cl.id} emoji={cl.emoji} label={`${cl.label} — ${cl.desc}`}
               onPress={() => setClimate(climate === cl.id ? "" : cl.id)} wide />
           ))}
         </View>
@@ -1591,8 +1680,16 @@ function HealthProfileModal({
             placeholder="YYYY-MM-DD"
             placeholderTextColor={isDark ? C.gray400 : Colors.gray300}
             value={birthday}
-            onChangeText={setBirthday}
-            autoCapitalize="none"
+            onChangeText={(raw) => {
+              // Strip non-digits
+              const digits = raw.replace(/\D/g, "").slice(0, 8);
+              let formatted = digits;
+              if (digits.length > 4) formatted = digits.slice(0, 4) + "-" + digits.slice(4);
+              if (digits.length > 6) formatted = digits.slice(0, 4) + "-" + digits.slice(4, 6) + "-" + digits.slice(6);
+              setBirthday(formatted);
+            }}
+            keyboardType="number-pad"
+            maxLength={10}
           />
         </View>
 
@@ -1621,6 +1718,13 @@ const spStyles = StyleSheet.create({
     fontWeight: "400",
     fontSize: FontSize.xs,
     color: Colors.gray400,
+  },
+  sectionDesc: {
+    fontSize: 12,
+    color: Colors.gray400,
+    lineHeight: 17,
+    marginBottom: 8,
+    marginTop: -2,
   },
   chipWrap: {
     flexDirection: "row",
@@ -1707,63 +1811,178 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   scrollContent: { paddingHorizontal: Spacing.xl, paddingBottom: Spacing.xxl },
 
-  // 已登录
-  avatarSection: { alignItems: "center", paddingVertical: Spacing.xxl },
+  // ══════ HERO HEADER ══════
+  heroHeader: {
+    borderRadius: 28,
+    paddingTop: 32,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+    alignItems: "center",
+    marginBottom: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  heroGlow1: {
+    position: "absolute",
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    top: -60,
+    right: -30,
+  },
+  heroGlow2: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    bottom: -20,
+    left: -20,
+  },
+  heroName: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#fff",
+    letterSpacing: -0.3,
+  },
+  heroEmail: {
+    fontSize: FontSize.sm,
+    color: "rgba(255,255,255,0.7)",
+    marginTop: 4,
+  },
+  heroScoreBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    marginTop: 12,
+  },
+  heroScoreDot: { width: 8, height: 8, borderRadius: 4 },
+  heroScoreVal: { fontSize: 15, fontWeight: "800", color: "#fff" },
+  heroScoreLbl: { fontSize: 11, color: "rgba(255,255,255,0.75)", fontWeight: "600" },
+
+  avatarWrap: {
+    position: "relative",
+    marginBottom: 12,
+  },
+  avatarRing: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    borderWidth: 3,
+    borderColor: "rgba(255,255,255,0.35)",
+    padding: 3,
+  },
   avatar: {
-    width: 80,
-    height: 80,
+    width: "100%" as any,
+    height: "100%" as any,
     borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.md,
   },
-  avatarText: { fontSize: 36, color: "#fff", fontWeight: "700" },
-  profileName: {
-    fontSize: FontSize.xl,
-    fontWeight: "700",
-    color: Colors.gray800,
+  avatarText: { fontSize: 32, color: "#fff", fontWeight: "700" },
+  avatarEditBadge: {
+    position: "absolute",
+    right: 0,
+    bottom: 2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.rose400,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  profileEmail: { fontSize: FontSize.sm, color: Colors.gray400, marginTop: 4 },
+
   vipTag: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "#fde68a20",
-    borderRadius: Radius.full,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    marginTop: 8,
+    gap: 5,
+    backgroundColor: "rgba(253,230,138,0.2)",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "rgba(253,230,138,0.3)",
   },
-  vipTagText: { fontSize: FontSize.xs, color: "#d97706", fontWeight: "600" },
+  vipTagText: { fontSize: 11, color: "#fde68a", fontWeight: "700" },
 
+  // ══════ VIP CARD ══════
   vipCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    gap: 14,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  vipCardGlow: {
+    position: "absolute",
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    top: -40,
+    right: -20,
+  },
+  vipIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   vipCardText: { flex: 1 },
-  vipCardTitle: { color: "#fff", fontWeight: "700", fontSize: FontSize.base },
+  vipCardTitle: { color: "#fff", fontWeight: "700", fontSize: 15 },
   vipCardSub: {
-    color: "rgba(255,255,255,0.8)",
-    fontSize: FontSize.xs,
-    marginTop: 2,
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 12,
+    marginTop: 3,
   },
 
+  // ══════ SECTIONS ══════
   section: {
     backgroundColor: Colors.white,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    borderRadius: 22,
+    padding: 6,
+    marginBottom: 16,
     shadowColor: "#F0ABCA",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 3,
     borderWidth: 1,
     borderColor: "#F9E0EE",
+  },
+  dangerSection: {
+    borderColor: "rgba(239,68,68,0.12)",
+    shadowColor: "#EF4444",
+    shadowOpacity: 0.04,
+    marginBottom: 4,
+  },
+  dangerIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   sectionItem: { flexDirection: "row", alignItems: "center", gap: Spacing.md },
   sectionLabel: { flex: 1, fontSize: FontSize.sm, color: Colors.gray500 },
@@ -1774,18 +1993,19 @@ const styles = StyleSheet.create({
   },
   divider: {
     height: 1,
-    backgroundColor: Colors.gray100,
-    marginVertical: Spacing.md,
+    backgroundColor: "#F5F0F3",
+    marginHorizontal: 12,
   },
 
   logoutBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: Spacing.sm,
-    padding: Spacing.lg,
+    gap: 8,
+    paddingVertical: 18,
+    marginBottom: 8,
   },
-  logoutText: { color: Colors.red, fontSize: FontSize.base, fontWeight: "600" },
+  logoutText: { color: Colors.gray400, fontSize: FontSize.sm, fontWeight: "600" },
 
   // 未登录 — Hero
   heroCard: {
@@ -1942,102 +2162,126 @@ const styles = StyleSheet.create({
   settingsBtn: {
     width: 40,
     height: 40,
+    borderRadius: 14,
+    backgroundColor: "#FFF0F6",
     alignItems: "center",
     justifyContent: "center",
   },
 
   groupLabel: {
-    fontSize: FontSize.xs,
+    fontSize: 11,
     fontWeight: "700",
     color: Colors.gray400,
     textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: Spacing.sm,
-    marginTop: Spacing.sm,
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    marginTop: 4,
+    marginLeft: 4,
   },
 
   statsGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-    marginBottom: Spacing.lg,
+    gap: 10,
+    marginBottom: 16,
   },
   statCard: {
-    flexGrow: 1,
-    flexBasis: "22%",
-    minWidth: 72,
+    flex: 1,
     backgroundColor: Colors.white,
-    borderRadius: Radius.lg,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.sm,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#F9E0EE",
+    shadowColor: "#F0ABCA",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  statInline: { flexDirection: "row", alignItems: "center", gap: 4 },
+  statIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
   statVal: {
-    fontSize: FontSize.lg,
-    fontWeight: "700",
+    fontSize: 18,
+    fontWeight: "800",
     color: Colors.gray800,
+    lineHeight: 22,
   },
   statLbl: {
-    fontSize: 11,
+    fontSize: 9,
     color: Colors.gray400,
     marginTop: 2,
+    fontWeight: "500",
   },
 
   rowBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    paddingVertical: Spacing.xs,
+    gap: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  rowIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   rowBtnText: { flex: 1 },
   rowBtnTitle: {
-    fontSize: FontSize.sm,
+    fontSize: 14,
     fontWeight: "600",
     color: Colors.gray800,
   },
   rowBtnSub: {
-    fontSize: FontSize.xs,
+    fontSize: 11,
     color: Colors.gray400,
     marginTop: 2,
-  },
-
-  // ── Avatar 可点击外观 ──
-  avatarWrap: {
-    position: "relative",
-    marginBottom: Spacing.md,
-  },
-  avatarEditBadge: {
-    position: "absolute",
-    right: 0,
-    bottom: 0,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: Colors.rose400,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
   },
 
   // ── Invite card ──
   inviteCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
-    borderRadius: Radius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.lg,
+    gap: 14,
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  inviteGlow: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    top: -30,
+    right: -10,
+  },
+  inviteIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   inviteCardText: { flex: 1 },
-  inviteCardTitle: { color: "#fff", fontWeight: "700", fontSize: FontSize.base },
+  inviteCardTitle: { color: "#fff", fontWeight: "700", fontSize: 15 },
   inviteCardSub: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: FontSize.xs,
-    marginTop: 2,
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    marginTop: 3,
   },
 
   // ── Modals ──

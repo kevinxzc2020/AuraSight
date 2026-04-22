@@ -99,17 +99,17 @@ interface ExtraTask {
 }
 
 const EXTRA_TASKS: ExtraTask[] = [
-  { id: "mood",      emoji: "😊", labelKey: "home.task.mood",     subKey: "home.task.moodSub",     pts: 10, btnLabelKey: "home.task.moodBtn",     action: { type: "mood" } },
-  { id: "tip",       emoji: "💡", labelKey: "home.task.tip",      subKey: "home.task.tipSub",      pts: 5,  btnLabelKey: "home.task.tipBtn",      action: { type: "tip" } },
-  { id: "trend",     emoji: "📊", labelKey: "home.task.trend",    subKey: "home.task.trendSub",    pts: 10, btnLabelKey: "home.task.trendBtn",    action: { type: "navigate", to: "/(tabs)/history" } },
-  { id: "report",    emoji: "📋", labelKey: "home.task.report",   subKey: "home.task.reportSub",   pts: 10, btnLabelKey: "home.task.reportBtn",   action: { type: "navigate", to: "/(tabs)/report" } },
-  { id: "ai_report", emoji: "🤖", labelKey: "home.task.aiReport", subKey: "home.task.aiReportSub", pts: 20, btnLabelKey: "home.task.aiReportBtn", action: { type: "navigate", to: "/(tabs)/report" }, vip: true },
-  { id: "ai_chat",   emoji: "💬", labelKey: "home.task.aiChat",   subKey: "home.task.aiChatSub",   pts: 15, btnLabelKey: "home.task.aiChatBtn",   action: { type: "navigate", to: "/chat" }, vip: true },
+  { id: "mood",      emoji: "😊", labelKey: "home.task.mood",      subKey: "home.task.moodSub",      pts: 10, btnLabelKey: "home.task.moodBtn",      action: { type: "mood" } },
+  { id: "tip",       emoji: "💡", labelKey: "home.task.tip",       subKey: "home.task.tipSub",       pts: 5,  btnLabelKey: "home.task.tipBtn",       action: { type: "tip" } },
+  { id: "progress",  emoji: "📊", labelKey: "home.task.progress",  subKey: "home.task.progressSub",  pts: 10, btnLabelKey: "home.task.progressBtn",  action: { type: "navigate", to: "/(tabs)/history" } },
+  { id: "ai_report", emoji: "🤖", labelKey: "home.task.aiReport",  subKey: "home.task.aiReportSub",  pts: 20, btnLabelKey: "home.task.aiReportBtn",  action: { type: "navigate", to: "/(tabs)/report" }, vip: true },
+  { id: "ai_chat",   emoji: "💬", labelKey: "home.task.aiChat",    subKey: "home.task.aiChatSub",    pts: 15, btnLabelKey: "home.task.aiChatBtn",    action: { type: "navigate", to: "/chat" }, vip: true },
 ];
 
 const SKIN_TIP_COUNT = 15;
 
-function getTodayTip(t: TFn): string {
+/** Static fallback — used while AI tip is loading or if fetch fails */
+function getStaticTip(t: TFn): string {
   const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
   return t(`home.tip.${dayOfYear % SKIN_TIP_COUNT}`);
 }
@@ -425,42 +425,6 @@ function MoodModal({
   );
 }
 
-// ─── Daily Tip Modal ─────────────────────────────────────────
-function TipModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
-  const { t } = useT();
-  const tip = getTodayTip(t);
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable style={[styles.modalSheet, { paddingBottom: 36 }]} onPress={() => {}}>
-          <View style={styles.modalHandle} />
-          <View style={styles.modalHeader}>
-            <View>
-              <Text style={styles.modalTitle}>{t("home.tipTitle")}</Text>
-              <Text style={styles.modalSub}>{t("home.tipSub")}</Text>
-            </View>
-            <TouchableOpacity onPress={onClose} style={styles.modalClose}>
-              <X size={18} color="#6B7280" />
-            </TouchableOpacity>
-          </View>
-
-          <LinearGradient colors={["#FFF3F6", "#FFF9FB"]} style={styles.tipBox}>
-            <Text style={styles.tipEmoji}>💡</Text>
-            <Text style={styles.tipText}>{tip}</Text>
-          </LinearGradient>
-
-          <TouchableOpacity onPress={onClose} style={styles.modalCta}>
-            <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.modalCtaGrad}>
-              <CheckCircle size={14} color="#fff" />
-              <Text style={styles.modalCtaText}>{t("home.tipGotIt")}</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
 // ─── Weekly Insight Card ──────────────────────────────────────
 interface InsightData {
   scans_this_week: number;
@@ -543,6 +507,8 @@ export default function HomeScreen() {
   const [totalPts, setTotalPts] = useState(0);
   const [todayPts, setTodayPts] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [streakModalVisible, setStreakModalVisible] = useState(false);
   const [faceDone, setFaceDone] = useState(false);
   const [bodyDone, setBodyDone] = useState(false);
   const [yesterdayFace, setYesterdayFace] = useState<string | null>(null);
@@ -552,7 +518,8 @@ export default function HomeScreen() {
   const [spotsModalVisible, setSpotsModalVisible] = useState(false);
   const [latestFaceScan, setLatestFaceScan] = useState<ScanRecord | null>(null);
   const [moodModalVisible, setMoodModalVisible] = useState(false);
-  const [tipModalVisible, setTipModalVisible] = useState(false);
+  const [tipExpanded, setTipExpanded] = useState(false);
+  const [aiTip, setAiTip] = useState<string>("");
 
   // 今日数据——每天"清零"，鼓励用户每天扫一次
   const [todaySpots, setTodaySpots] = useState<number | null>(null);
@@ -600,10 +567,17 @@ export default function HomeScreen() {
       setTotalPts(ptsRes.total_points ?? 0);
       setTodayPts(ptsRes.today_pts ?? 0);
       setStreak(ptsRes.streak ?? 0);
+      setBestStreak(ptsRes.best_streak ?? ptsRes.streak ?? 0);
       setInsight(insightRes);
 
       // Fetch AI daily advice (non-blocking)
       getDailyAdvice(id).then(setDailyAdvice).catch(() => {});
+
+      // Fetch AI daily tip (non-blocking, cached server-side per day)
+      fetch(`${API_URL}/ai/daily-tip`)
+        .then(r => r.json())
+        .then(data => { if (data.tip) setAiTip(data.tip); })
+        .catch(() => {});
       setFaceDone(ptsRes.tasks_today?.face ?? false);
       setBodyDone(ptsRes.tasks_today?.body ?? false);
 
@@ -655,7 +629,7 @@ export default function HomeScreen() {
     if (task.action.type === "mood") {
       setMoodModalVisible(true);
     } else if (task.action.type === "tip") {
-      setTipModalVisible(true);
+      setTipExpanded(v => !v);
     } else if (task.action.type === "navigate") {
       completeExtraTask(task.id);
       router.push(task.action.to as any);
@@ -693,15 +667,17 @@ export default function HomeScreen() {
                   <Text style={[styles.signInText, isDark && { color: C.gray400 }]}>{t("common.signIn")}</Text>
                 </TouchableOpacity>
               )}
-              <LinearGradient
-                colors={streak >= 7 ? ["#FFF0E8", "#FFEADD"] : ["#FFE4E6", "#FCE7F3"]}
-                style={styles.streakBadge}
-              >
-                <FlameIcon streak={streak} />
-                <Text style={[styles.streakText, streak >= 30 && { color: "#DC2626" }, streak >= 7 && streak < 30 && { color: "#EA580C" }]}>
-                  {t("home.streak", { n: String(streak) })}
-                </Text>
-              </LinearGradient>
+              <TouchableOpacity onPress={() => setStreakModalVisible(true)} activeOpacity={0.8}>
+                <LinearGradient
+                  colors={streak >= 7 ? ["#FFF0E8", "#FFEADD"] : ["#FFE4E6", "#FCE7F3"]}
+                  style={styles.streakBadge}
+                >
+                  <FlameIcon streak={streak} />
+                  <Text style={[styles.streakText, streak >= 30 && { color: "#DC2626" }, streak >= 7 && streak < 30 && { color: "#EA580C" }]}>
+                    {t("home.streak", { n: String(streak) })}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
             </View>
           </View>
 
@@ -714,6 +690,41 @@ export default function HomeScreen() {
               scoreChange={scoreChange}
             />
           </FadeInComponent>
+
+          {/* ── AI Daily Advice — 个性化内容优先展示 ── */}
+          {dailyAdvice ? (
+            <FadeInComponent delay={150} duration={400} from="bottom">
+              <TouchableOpacity
+                onPress={() => router.push("/chat")}
+                activeOpacity={0.85}
+              >
+                <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFF5FB"]} style={[styles.aiCard, isDark && { borderColor: C.gray200 }]}>
+                  <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.aiAvatarGrad}>
+                    <Sparkles size={16} color="#fff" />
+                  </LinearGradient>
+                  <View style={styles.aiInfo}>
+                    <View style={styles.aiTitleRow}>
+                      <View>
+                        <Text style={[styles.aiTitle, isDark && { color: C.gray900 }]}>{t("home.aura")}</Text>
+                        <Text style={[styles.aiSubtitle, isDark && { color: C.gray500 }]}>{t("home.auraSubtitle")}</Text>
+                      </View>
+                      <View style={styles.aiLivePill}>
+                        <Text style={styles.aiLiveDot}>●</Text>
+                        <Text style={styles.aiLiveText}>{t("home.aiLive")}</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.aiSub, isDark && { color: C.gray400 }]} numberOfLines={2}>
+                      {dailyAdvice}
+                    </Text>
+                  </View>
+                  <ChevronRight size={16} color={Colors.rose400} />
+                </LinearGradient>
+              </TouchableOpacity>
+            </FadeInComponent>
+          ) : null}
+
+          {/* ── 广告横幅（仅免费用户）── */}
+          <AdBanner style={{ marginBottom: 4 }} />
 
           {/* ── Daily Check-in（隐藏式：默认收起，点击展开） ── */}
           {(() => {
@@ -739,7 +750,7 @@ export default function HomeScreen() {
                   <Text style={[styles.checkinSummary, isDark && { color: C.gray400 }]}>
                     {allMainDone ? t("home.doneToday") : t("home.mainProgress", { done: String(mainDone) })}
                     {totalExtra > 0 ? ` · ${t("home.bonusProgress", { done: String(extraDoneCount), total: String(totalExtra) })}` : ""}
-                    {" · "}{displayTodayPts} {t("home.pts")}
+                    {` · ${displayTodayPts} ${t("home.pts")}`}
                   </Text>
                 )}
               </View>
@@ -894,6 +905,24 @@ export default function HomeScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
+
+                  {/* Inline tip expand */}
+                  {task.id === "tip" && tipExpanded && !done && (
+                    <View style={styles.tipInline}>
+                      <Text style={styles.tipInlineText}>💡 {aiTip || getStaticTip(t)}</Text>
+                      <TouchableOpacity
+                        style={styles.tipInlineBtn}
+                        onPress={async () => {
+                          await completeExtraTask("tip");
+                          setTipExpanded(false);
+                        }}
+                      >
+                        <CheckCircle size={13} color="#fff" />
+                        <Text style={styles.tipInlineBtnText}>{t("home.tipGotIt")}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
                   {!isLast && <View style={styles.taskDivider} />}
                 </React.Fragment>
               );
@@ -903,9 +932,6 @@ export default function HomeScreen() {
           </View>
             );
           })()}
-
-          {/* ── 广告横幅（仅免费用户） ── */}
-          <AdBanner style={{ marginBottom: 4 }} />
 
           {/* ── Today's Stats Row ── */}
           <Text style={[styles.todayLabel, isDark && { color: C.gray500 }]}>{t("home.todayLabel")}</Text>
@@ -980,32 +1006,7 @@ export default function HomeScreen() {
             <WeeklyInsightCard insight={insight} isVip={isVip} />
           </FadeInComponent>
 
-          {/* ── AI Daily Advice ── */}
-          <FadeInComponent delay={400} duration={400} from="bottom">
-            <TouchableOpacity
-              onPress={() => router.push("/chat")}
-              activeOpacity={0.85}
-            >
-              <LinearGradient colors={isDark ? [C.cardBg, C.cardBg] : ["#FFF0F6", "#FFF5FB"]} style={[styles.aiCard, isDark && { borderColor: C.gray200 }]}>
-                <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.aiAvatarGrad}>
-                  <Sparkles size={16} color="#fff" />
-                </LinearGradient>
-                <View style={styles.aiInfo}>
-                  <View style={styles.aiTitleRow}>
-                    <Text style={[styles.aiTitle, isDark && { color: C.gray900 }]}>{t("home.aiAdvisor")}</Text>
-                    <View style={styles.aiLivePill}>
-                      <Text style={styles.aiLiveDot}>●</Text>
-                      <Text style={styles.aiLiveText}>{t("home.aiLive")}</Text>
-                    </View>
-                  </View>
-                  <Text style={[styles.aiSub, isDark && { color: C.gray400 }]} numberOfLines={2}>
-                    {dailyAdvice || t("home.aiDefault")}
-                  </Text>
-                </View>
-                <ChevronRight size={16} color={Colors.rose400} />
-              </LinearGradient>
-            </TouchableOpacity>
-          </FadeInComponent>
+          {/* AI Daily Advice 已移至顶部（Skin Score 下方） */}
 
           {/* ── Guest banner ── */}
           {isGuest && (
@@ -1042,15 +1043,127 @@ export default function HomeScreen() {
         }}
       />
 
-      {/* ── Daily Tip Modal ── */}
-      <TipModal
-        visible={tipModalVisible}
-        onClose={async () => {
-          setTipModalVisible(false);
-          await completeExtraTask("tip");
-        }}
+      {/* ── Streak Detail Modal ── */}
+      <StreakModal
+        visible={streakModalVisible}
+        onClose={() => setStreakModalVisible(false)}
+        streak={streak}
+        bestStreak={bestStreak}
       />
     </LinearGradient>
+  );
+}
+
+// ─── Streak Detail Modal ────────────────────────────────────────
+function StreakModal({ visible, onClose, streak, bestStreak }: {
+  visible: boolean; onClose: () => void; streak: number; bestStreak: number;
+}) {
+  const { t } = useT();
+  const { colors: C, isDark } = useAppTheme();
+
+  // Next milestone & bonus info
+  const currentBonus = streak >= 30 ? 200 : streak >= 7 ? 50 : streak >= 3 ? 20 : 0;
+  const nextMilestone = streak < 3 ? 3 : streak < 7 ? 7 : streak < 30 ? 30 : null;
+  const nextBonus = streak < 3 ? 20 : streak < 7 ? 50 : streak < 30 ? 200 : null;
+  const progress = nextMilestone ? streak / nextMilestone : 1;
+
+  const motivationMsg = streak === 0
+    ? t("streak.startToday")
+    : streak < 3
+      ? t("streak.keepGoing")
+      : streak < 7
+        ? t("streak.almostWeek")
+        : streak < 30
+          ? t("streak.weekStrong")
+          : t("streak.legendary");
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.modalOverlay} onPress={onClose}>
+        <Pressable style={[styles.modalSheet, isDark && { backgroundColor: C.cardBg }]} onPress={() => {}}>
+          <View style={styles.modalHandle} />
+
+          {/* Hero section */}
+          <LinearGradient
+            colors={streak >= 30 ? ["#DC2626", "#EF4444", "#F87171"] : streak >= 7 ? ["#EA580C", "#F97316", "#FB923C"] : ["#F43F8F", "#F472B6", "#FB9FBD"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.streakHero}
+          >
+            <View style={styles.streakHeroGlow} />
+            <Text style={styles.streakHeroEmoji}>🔥</Text>
+            <Text style={styles.streakHeroNum}>{streak}</Text>
+            <Text style={styles.streakHeroLabel}>{t("streak.dayStreak")}</Text>
+            <Text style={styles.streakHeroMotivation}>{motivationMsg}</Text>
+          </LinearGradient>
+
+          {/* Stats row */}
+          <View style={styles.streakStatsRow}>
+            <View style={[styles.streakStatCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+              <Text style={[styles.streakStatEmoji]}>🏆</Text>
+              <Text style={[styles.streakStatVal, isDark && { color: C.gray900 }]}>{bestStreak}</Text>
+              <Text style={[styles.streakStatLbl, isDark && { color: C.gray400 }]}>{t("streak.bestRecord")}</Text>
+            </View>
+            <View style={[styles.streakStatCard, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+              <Text style={[styles.streakStatEmoji]}>⚡</Text>
+              <Text style={[styles.streakStatVal, isDark && { color: C.gray900 }]}>{`+${currentBonus}`}</Text>
+              <Text style={[styles.streakStatLbl, isDark && { color: C.gray400 }]}>{t("streak.dailyBonus")}</Text>
+            </View>
+          </View>
+
+          {/* Next milestone */}
+          {nextMilestone && (
+            <View style={[styles.streakMilestone, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+              <View style={styles.streakMilestoneTop}>
+                <Text style={[styles.streakMilestoneLbl, isDark && { color: C.gray900 }]}>
+                  {t("streak.nextMilestone", { n: String(nextMilestone) })}
+                </Text>
+                <Text style={styles.streakMilestoneBonus}>{`+${nextBonus} pts`}</Text>
+              </View>
+              <View style={styles.streakProgressTrack}>
+                <LinearGradient
+                  colors={["#F43F8F", "#FB923C"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.streakProgressFill, { width: `${Math.min(progress * 100, 100)}%` as any }]}
+                />
+              </View>
+              <Text style={[styles.streakProgressText, isDark && { color: C.gray400 }]}>
+                {`${streak}/${nextMilestone} ${t("streak.days")}`}
+              </Text>
+            </View>
+          )}
+
+          {/* Bonus tiers */}
+          <View style={[styles.streakTiers, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
+            <Text style={[styles.streakTiersTitle, isDark && { color: C.gray900 }]}>{t("streak.bonusTiers")}</Text>
+            {[
+              { days: 3, bonus: 20, emoji: "✨", reached: streak >= 3 },
+              { days: 7, bonus: 50, emoji: "⭐", reached: streak >= 7 },
+              { days: 30, bonus: 200, emoji: "👑", reached: streak >= 30 },
+            ].map((tier) => (
+              <View key={tier.days} style={styles.streakTierRow}>
+                <Text style={styles.streakTierEmoji}>{tier.emoji}</Text>
+                <Text style={[styles.streakTierLabel, isDark && { color: C.gray900 }, tier.reached && { fontWeight: "700" }]}>
+                  {`${tier.days}+ ${t("streak.days")}`}
+                </Text>
+                <Text style={[styles.streakTierBonus, tier.reached && { color: "#10B981", fontWeight: "700" }]}>
+                  {`+${tier.bonus} pts/day`}
+                </Text>
+                {tier.reached && <Text style={styles.streakTierCheck}>✓</Text>}
+              </View>
+            ))}
+          </View>
+
+          {/* CTA */}
+          <TouchableOpacity onPress={onClose} activeOpacity={0.85}>
+            <LinearGradient colors={["#F43F8F", "#F472B6"]} style={styles.modalCtaGrad}>
+              <Text style={styles.modalCtaText}>{t("common.close")}</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -1300,17 +1413,36 @@ const styles = StyleSheet.create({
   moodEmoji: { fontSize: 28, marginBottom: 4 },
   moodLabel: { fontSize: 10, fontWeight: "500", color: "#6B7280" },
 
-  // Tip modal
-  tipBox: {
-    marginHorizontal: 24,
-    borderRadius: 20,
-    padding: 20,
-    alignItems: "center",
-    marginBottom: 24,
-    gap: 12,
+  // Inline tip (expanded in task card)
+  tipInline: {
+    backgroundColor: "#FFF9F0",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 8,
+    marginLeft: 52,
+    gap: 10,
   },
-  tipEmoji: { fontSize: 36 },
-  tipText: { fontSize: 14, color: "#374151", lineHeight: 22, textAlign: "center", fontWeight: "500" },
+  tipInlineText: {
+    fontSize: 13,
+    color: "#374151",
+    lineHeight: 20,
+    fontWeight: "500",
+  },
+  tipInlineBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-end",
+    gap: 5,
+    backgroundColor: "#10B981",
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  tipInlineBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#fff",
+  },
 
   // ── Stats Row
   todayLabel: {
@@ -1577,8 +1709,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   aiInfo: { flex: 1 },
-  aiTitleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  aiTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, marginBottom: 4 },
   aiTitle: { fontSize: 13, fontWeight: "700", color: "#1F2937" },
+  aiSubtitle: { fontSize: 10, color: "#9CA3AF", marginTop: 1 },
   aiLivePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1603,4 +1736,163 @@ const styles = StyleSheet.create({
   },
   guestText: { flex: 1, fontSize: 12, color: Colors.rose600 },
   guestArrow: { fontSize: 14, color: Colors.rose400, fontWeight: "700" },
+
+  // ── Streak Modal
+  streakHero: {
+    alignItems: "center",
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    marginHorizontal: 24,
+    marginBottom: 18,
+    overflow: "hidden",
+  },
+  streakHeroGlow: {
+    position: "absolute",
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    top: -40,
+    right: -30,
+  },
+  streakHeroEmoji: {
+    fontSize: 44,
+    marginBottom: 4,
+  },
+  streakHeroNum: {
+    fontSize: 56,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    lineHeight: 60,
+  },
+  streakHeroLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 2,
+  },
+  streakHeroMotivation: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.75)",
+    marginTop: 8,
+    textAlign: "center",
+  },
+  streakStatsRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
+  streakStatCard: {
+    flex: 1,
+    alignItems: "center",
+    backgroundColor: "#FFF5F8",
+    borderRadius: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#FCE7F3",
+  },
+  streakStatEmoji: {
+    fontSize: 22,
+    marginBottom: 4,
+  },
+  streakStatVal: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#1F2937",
+    lineHeight: 26,
+  },
+  streakStatLbl: {
+    fontSize: 10,
+    fontWeight: "500",
+    color: "#9CA3AF",
+    marginTop: 2,
+  },
+  streakMilestone: {
+    marginHorizontal: 24,
+    backgroundColor: "#FFF5F8",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#FCE7F3",
+  },
+  streakMilestoneTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  streakMilestoneLbl: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  streakMilestoneBonus: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#F43F8F",
+  },
+  streakProgressTrack: {
+    height: 8,
+    backgroundColor: "#F3E8F0",
+    borderRadius: 4,
+    overflow: "hidden",
+    marginBottom: 6,
+  },
+  streakProgressFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  streakProgressText: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    textAlign: "right",
+  },
+  streakTiers: {
+    marginHorizontal: 24,
+    backgroundColor: "#FFF5F8",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#FCE7F3",
+  },
+  streakTiersTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1F2937",
+    marginBottom: 12,
+  },
+  streakTierRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#FCE7F3",
+  },
+  streakTierEmoji: {
+    fontSize: 18,
+    width: 28,
+    textAlign: "center",
+  },
+  streakTierLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "500",
+    color: "#374151",
+  },
+  streakTierBonus: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#9CA3AF",
+    marginRight: 6,
+  },
+  streakTierCheck: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#10B981",
+  },
 });

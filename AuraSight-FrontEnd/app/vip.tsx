@@ -316,9 +316,9 @@ export default function VIPScreen() {
         <View style={styles.legalRow}>
           <TouchableOpacity onPress={handleRestore}><Text style={styles.legalLink}>{t("vip.restore")}</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
-          <TouchableOpacity><Text style={styles.legalLink}>Terms</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/terms")}><Text style={styles.legalLink}>Terms</Text></TouchableOpacity>
           <Text style={styles.legalDot}>·</Text>
-          <TouchableOpacity><Text style={styles.legalLink}>Privacy</Text></TouchableOpacity>
+          <TouchableOpacity onPress={() => router.push("/privacy")}><Text style={styles.legalLink}>Privacy</Text></TouchableOpacity>
         </View>
 
         <Text style={styles.disclaimer}>

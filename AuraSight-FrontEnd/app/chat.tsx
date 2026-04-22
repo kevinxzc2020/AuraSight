@@ -65,17 +65,61 @@ function TypingDots() {
 export default function ChatScreen() {
   const { t } = useT();
   const [messages, setMessages] = useState<Message[]>([
-    { id: "welcome", role: "assistant", content: `Hi! I'm your AuraSight AI skin consultant 👋\n\nI can help you understand your scan results, explain skin trends, and give personalized advice based on your data.\n\nWhat would you like to know about your skin today?` },
+    { id: "welcome", role: "assistant", content: "" },  // Will be set with i18n in useEffect
   ]);
+  const [welcomeLoaded, setWelcomeLoaded] = useState(false);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [userId, setUserId] = useState<string | undefined>(undefined);
+  const [dailyTip, setDailyTip] = useState<string>("");
   const listRef = useRef<FlatList>(null);
+  const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
+
+  // Static tips fallback (used from home page)
+  const SKIN_TIP_COUNT = 15;
+  function getStaticTip(): string {
+    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000);
+    const tipIndex = dayOfYear % SKIN_TIP_COUNT;
+    const tips = [
+      "Cleanse twice daily — morning removes overnight oils, evening removes pollutants and makeup.",
+      "SPF 30+ every morning, even on cloudy days. UV rays penetrate clouds and windows.",
+      "Touching your face transfers bacteria. Keep hands away between cleansing routines.",
+      "Pillowcases collect oil and bacteria. Change them at least once a week.",
+      "Lukewarm water is ideal for washing. Hot water strips your skin's natural barrier.",
+      "Stress triggers cortisol, which increases oil production and breakouts.",
+      "Retinol at night, vitamin C in the morning — they work best at different times.",
+      "Hydration shows in your skin. Dehydrated skin overproduces oil to compensate.",
+      "Pat dry, don't rub. Rubbing with a towel creates micro-tears in skin.",
+      "Always apply skincare to slightly damp skin — it absorbs actives better.",
+      "Spot treatments work best applied to a clean face before moisturiser.",
+      "Exfoliate 1-2x per week max. Over-exfoliation weakens your skin barrier.",
+      "Antioxidants in your diet (berries, green tea) help fight skin-damaging free radicals.",
+      "The skin around your eyes is thinnest — use a dedicated eye cream, gently.",
+      "Consistency beats intensity. A simple routine done daily beats an elaborate one done rarely.",
+    ];
+    return tips[tipIndex] || tips[0];
+  }
 
   useEffect(() => {
     // 用集中版 getUserId——登录后拿账号 id，未登录拿 guest id
     getUserId().then((id) => setUserId(id));
-  }, []);
+
+    // Set welcome message with i18n
+    setMessages([
+      {
+        id: "welcome",
+        role: "assistant",
+        content: `${t("chat.welcome")}\n\n${t("chat.welcomeSub")}`
+      }
+    ]);
+    setWelcomeLoaded(true);
+
+    // Fetch AI daily tip (non-blocking, cached server-side per day)
+    fetch(`${API_URL}/ai/daily-tip`)
+      .then(r => r.json())
+      .then(data => { if (data.tip) setDailyTip(data.tip); })
+      .catch(() => { setDailyTip(getStaticTip()); });
+  }, [t]);
 
   async function handleSend(text?: string) {
     const content = (text ?? input).trim();
@@ -157,6 +201,17 @@ export default function ChatScreen() {
             ListFooterComponent={
               messages.length === 1 ? (
                 <View style={styles.suggestedSection}>
+                  {dailyTip && (
+                    <LinearGradient
+                      colors={["#FFF5F8", "#FFEDF3"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.tipCard}
+                    >
+                      <Text style={styles.tipHeader}>💡 Today's Tip</Text>
+                      <Text style={styles.tipText}>{dailyTip}</Text>
+                    </LinearGradient>
+                  )}
                   <Text style={styles.suggestedLabel}>Suggested questions</Text>
                   {[
                     "What do my recent scan results mean?",
@@ -299,6 +354,30 @@ const styles = StyleSheet.create({
   dotActive: { backgroundColor: "#F43F8F" },
 
   suggestedSection: { marginTop: 8, gap: 8 },
+  tipCard: {
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#F9E0EE",
+    shadowColor: "#F472B6",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  tipHeader: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.gray700,
+    marginBottom: 6,
+  },
+  tipText: {
+    fontSize: 12,
+    color: Colors.gray600,
+    lineHeight: 18,
+    fontWeight: "500",
+  },
   suggestedLabel: {
     fontSize: 10,
     fontWeight: "600",

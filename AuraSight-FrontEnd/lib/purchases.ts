@@ -1,108 +1,120 @@
 /**
- * AuraSight — RevenueCat In-App Purchases
+ * AuraSight — In-App Purchases Interface
  *
- * 接入步骤：
- * 1. 去 revenuecat.com 注册账号（免费）
- * 2. 创建 App，拿到 API Key（iOS 和 Android 各一个）
- * 3. 在 App Store Connect / Google Play Console 创建订阅产品，ID 对应下面的 PRODUCT_IDS
- * 4. 安装 SDK：expo install react-native-purchases react-native-purchases-ui
- * 5. 把 REVENUECAT_API_KEY_IOS / _ANDROID 填到 app.json 的 extra 里
- * 6. 需要 Development Build（Expo Go 不支持真实购买）
+ * This module provides a unified interface for purchases with automatic fallback to mock mode.
+ * RevenueCat integration is in lib/revenueCat.ts
  *
- * 文档：https://www.revenuecat.com/docs/getting-started/installation/expo
+ * Setup:
+ * 1. Register at revenuecat.com and create an app
+ * 2. Get API keys for iOS and Android
+ * 3. Set EXPO_PUBLIC_RC_API_KEY_IOS and EXPO_PUBLIC_RC_API_KEY_ANDROID in app.json
+ * 4. Product IDs must match App Store Connect / Google Play Console
+ * 5. Requires Development Build (Expo Go does not support real purchases)
+ *
+ * Reference: https://www.revenuecat.com/docs/getting-started/installation/expo
  */
 
-// ─── Product IDs（要和 App Store / Play Store 里的一致）──────
-export const PRODUCT_IDS = {
-  monthly:  "aurasight_vip_monthly",   // $4.99/mo, 7-day trial
-  annual:   "aurasight_vip_annual",    // $34.99/yr, 7-day trial
-  lifetime: "aurasight_vip_lifetime",  // $9.99 one-time
-} as const;
+import * as RevenueCat from './revenueCat';
 
-export type PlanId = keyof typeof PRODUCT_IDS;
+// ─── Export product IDs from RevenueCat module ──────────────────
+export const PRODUCT_IDS = RevenueCat.PRODUCT_IDS;
+export type PlanId = RevenueCat.ProductId;
 
-// ─── Mock 模式（Dev Build 未接好时用） ────────────────────────
-// 设为 true 时所有购买都立刻"成功"，用于 UI 测试
-const MOCK_MODE = true;
+// ─── Mock mode detection ────────────────────────────────────────
+// Falls back to mock mode if RevenueCat API keys are not configured
+// or if SDK initialization fails
+let useMockMode = false;
 
-// ─── 初始化 RevenueCat ────────────────────────────────────────
+/**
+ * Initialize purchases system
+ * Automatically detects if RevenueCat is properly configured
+ * If not, falls back to mock mode for UI testing
+ */
 export async function initPurchases(userId?: string): Promise<void> {
-  if (MOCK_MODE) return;
   try {
-    const Purchases = (await import("react-native-purchases")).default;
-    const Platform = (await import("react-native")).Platform;
-    const apiKey = Platform.OS === "ios"
-      ? process.env.EXPO_PUBLIC_RC_API_KEY_IOS ?? ""
-      : process.env.EXPO_PUBLIC_RC_API_KEY_ANDROID ?? "";
-    if (!apiKey) {
-      console.warn("RevenueCat API key not set — purchases disabled");
-      return;
-    }
-    await Purchases.configure({ apiKey });
-    if (userId) await Purchases.logIn(userId);
-    console.log("✅ RevenueCat initialized");
+    await RevenueCat.initRevenueCat(userId);
+    useMockMode = false;
+    console.log('✅ RevenueCat purchases initialized');
   } catch (err) {
-    console.warn("RevenueCat init failed:", err);
+    console.warn('RevenueCat initialization failed, using mock mode:', err);
+    useMockMode = true;
   }
 }
 
-// ─── 购买产品 ─────────────────────────────────────────────────
+// ─── Purchase result interface ──────────────────────────────────
 export interface PurchaseResult {
   success: boolean;
   error?: string;
 }
 
+/**
+ * Purchase a subscription or one-time product
+ * @param planId - The plan to purchase (monthly, annual, challenge)
+ * @returns Promise with success status and optional error message
+ */
 export async function purchasePlan(planId: PlanId): Promise<PurchaseResult> {
-  if (MOCK_MODE) {
-    // Mock: 直接返回成功
-    console.log("[MOCK] Purchase simulated for:", planId);
+  if (useMockMode) {
+    console.log('[MOCK] Purchase simulated for:', planId);
     return { success: true };
   }
 
   try {
-    const Purchases = (await import("react-native-purchases")).default;
-    const offerings = await Purchases.getOfferings();
-    const current = offerings.current;
-    if (!current) return { success: false, error: "No offerings available" };
+    const offerings = await RevenueCat.getOfferings();
+    if (!offerings || offerings.length === 0) {
+      return { success: false, error: 'No offerings available' };
+    }
 
-    // 找到对应的 package
-    const pkg = current.availablePackages.find(
-      (p) => p.product.identifier === PRODUCT_IDS[planId]
-    );
-    if (!pkg) return { success: false, error: `Product ${planId} not found` };
+    // Find the package matching the plan ID
+    const productId = RevenueCat.PRODUCT_IDS[planId];
+    const pkg = offerings.find((p) => p.product.identifier === productId);
 
-    const { customerInfo } = await Purchases.purchasePackage(pkg);
-    const isActive = customerInfo.activeSubscriptions.length > 0
-      || customerInfo.nonSubscriptionTransactions.length > 0;
+    if (!pkg) {
+      return { success: false, error: `Product ${planId} not found` };
+    }
 
+    const isActive = await RevenueCat.purchasePackage(pkg);
     return { success: isActive };
   } catch (err: any) {
-    if (err.userCancelled) return { success: false, error: "cancelled" };
-    return { success: false, error: err.message ?? "Purchase failed" };
+    if (err.userCancelled) {
+      return { success: false, error: 'cancelled' };
+    }
+    console.error('Purchase error:', err);
+    return { success: false, error: err.message ?? 'Purchase failed' };
   }
 }
 
-// ─── 恢复购买 ─────────────────────────────────────────────────
+/**
+ * Restore previous purchases
+ * Useful for users reinstalling or switching devices
+ * @returns true if active subscriptions were found and restored
+ */
 export async function restorePurchases(): Promise<boolean> {
-  if (MOCK_MODE) return false;
+  if (useMockMode) {
+    console.log('[MOCK] Restore purchases simulated');
+    return false;
+  }
+
   try {
-    const Purchases = (await import("react-native-purchases")).default;
-    const { customerInfo } = await Purchases.restorePurchases();
-    return customerInfo.activeSubscriptions.length > 0;
-  } catch {
+    return await RevenueCat.restorePurchases();
+  } catch (err) {
+    console.error('Restore purchases error:', err);
     return false;
   }
 }
 
-// ─── 检查当前订阅状态 ─────────────────────────────────────────
+/**
+ * Check current VIP subscription status
+ * @returns true if user has active VIP subscription
+ */
 export async function checkVIPStatus(): Promise<boolean> {
-  if (MOCK_MODE) return false;
+  if (useMockMode) {
+    return false;
+  }
+
   try {
-    const Purchases = (await import("react-native-purchases")).default;
-    const info = await Purchases.getCustomerInfo();
-    return info.activeSubscriptions.length > 0
-      || info.nonSubscriptionTransactions.length > 0;
-  } catch {
+    return await RevenueCat.checkVipStatus();
+  } catch (err) {
+    console.error('Check VIP status error:', err);
     return false;
   }
 }

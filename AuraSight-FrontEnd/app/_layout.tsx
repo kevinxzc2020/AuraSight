@@ -7,6 +7,7 @@ import { ThemeProvider } from "../lib/themeContext";
 import { initAds, initAppOpenAd, initRewardedAd } from "../lib/ads";
 import { useUser } from "../lib/userContext";
 import { registerForPushNotifications, setupNotificationHandler } from "../lib/notifications";
+import { initPurchases } from "../lib/purchases";
 
 // Root layout
 // 四层 provider：
@@ -37,6 +38,21 @@ function PushNotificationManager() {
   return null;
 }
 
+function PurchaseInitializer() {
+  const { user } = useUser();
+
+  useEffect(() => {
+    // 初始化 RevenueCat（带有自动 mock 模式降级）
+    if (user?.id) {
+      initPurchases(user.id).catch((err) => {
+        console.error("Failed to initialize purchases:", err);
+      });
+    }
+  }, [user?.id]);
+
+  return null;
+}
+
 function AdInitializer() {
   const { user } = useUser();
   const isVIP = user?.mode === "vip";
@@ -52,6 +68,7 @@ export default function RootLayout() {
   return (
     <UserProvider>
       <PushNotificationManager />
+      <PurchaseInitializer />
       <AdInitializer />
       <I18nProvider>
         <ThemeProvider>

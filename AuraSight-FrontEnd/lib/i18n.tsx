@@ -37,6 +37,7 @@ const STRINGS: Record<string, Record<string, string>> = {
   "common.iAgree":   { en: "I agree",    zh: "我同意",   es: "Acepto" },
   "common.revoke":   { en: "Revoke",     zh: "撤销",     es: "Revocar" },
   "common.signIn":   { en: "Sign In",    zh: "登录",     es: "Iniciar sesión" },
+  "common.signOut":  { en: "Sign Out",   zh: "退出登录",  es: "Cerrar sesión" },
   "common.unlock":   { en: "Unlock",     zh: "解锁",     es: "Desbloquear" },
   "common.scan":     { en: "Scan",       zh: "扫描",     es: "Escanear" },
   "common.close":    { en: "Close",      zh: "关闭",     es: "Cerrar" },
@@ -120,16 +121,13 @@ const STRINGS: Record<string, Record<string, string>> = {
   "home.task.tip":             { en: "Read today's skin tip",          zh: "阅读今日护肤贴士",        es: "Lee el consejo de piel de hoy" },
   "home.task.tipSub":          { en: "+5 pts · new tip every day",     zh: "+5 分 · 每天一个新贴士", es: "+5 pts · un consejo nuevo cada día" },
   "home.task.tipBtn":          { en: "Read",                           zh: "阅读",                   es: "Leer" },
-  "home.task.trend":           { en: "Check your 7-day trend",         zh: "查看 7 天趋势",          es: "Revisa tu tendencia de 7 días" },
-  "home.task.trendSub":        { en: "+10 pts · see how you're progressing",  zh: "+10 分 · 看看你的进展", es: "+10 pts · mira tu progreso" },
-  "home.task.trendBtn":        { en: "View",                           zh: "查看",                   es: "Ver" },
-  "home.task.report":          { en: "Review last scan report",        zh: "查看上次扫描报告",        es: "Revisa el último informe" },
-  "home.task.reportSub":       { en: "+10 pts · understand your results",     zh: "+10 分 · 了解你的结果", es: "+10 pts · entiende tus resultados" },
-  "home.task.reportBtn":       { en: "Open",                           zh: "打开",                   es: "Abrir" },
+  "home.task.progress":        { en: "Review your progress",            zh: "查看你的进展",            es: "Revisa tu progreso" },
+  "home.task.progressSub":     { en: "+10 pts · check trends & past scans",  zh: "+10 分 · 查看趋势和历史扫描", es: "+10 pts · revisa tendencias y escaneos" },
+  "home.task.progressBtn":     { en: "View",                           zh: "查看",                   es: "Ver" },
   "home.task.aiReport":        { en: "Generate AI skin analysis",      zh: "生成 AI 皮肤分析",       es: "Genera análisis AI de piel" },
   "home.task.aiReportSub":     { en: "+20 pts · deep dive into your skin health", zh: "+20 分 · 深入了解皮肤健康", es: "+20 pts · análisis profundo de tu piel" },
   "home.task.aiReportBtn":     { en: "Unlock",                         zh: "解锁",                   es: "Desbloquear" },
-  "home.task.aiChat":          { en: "Chat with your skin advisor",    zh: "与皮肤顾问聊天",          es: "Chatea con tu asesor de piel" },
+  "home.task.aiChat":          { en: "Chat with Aura",                zh: "与 Aura 聊天",           es: "Chatea con Aura" },
   "home.task.aiChatSub":       { en: "+15 pts · personalized advice just for you", zh: "+15 分 · 为你定制的个性化建议", es: "+15 pts · consejos personalizados para ti" },
   "home.task.aiChatBtn":       { en: "Unlock",                         zh: "解锁",                   es: "Desbloquear" },
 
@@ -205,16 +203,28 @@ const STRINGS: Record<string, Record<string, string>> = {
   "home.spots":                { en: "Spots",                          zh: "痘痘",                   es: "Manchas" },
   "home.skinScore":            { en: "Skin Score",                     zh: "皮肤评分",               es: "Puntaje de piel" },
 
-  // AI advisor
-  "home.aiAdvisor":            { en: "AI Skin Advisor",                zh: "AI 皮肤顾问",            es: "Asesor AI de piel" },
+  // Aura (AI Skin Consultant)
+  "home.aura":                 { en: "Aura",                           zh: "Aura",                   es: "Aura" },
+  "home.auraSubtitle":         { en: "Your AI Skin Consultant",        zh: "你的 AI 皮肤顾问",       es: "Tu Asesor AI de Piel" },
   "home.aiLive":               { en: "Live",                           zh: "在线",                   es: "En vivo" },
-  "home.aiDefault":            { en: "Tap to get personalized advice from your AI consultant", zh: "点击获取 AI 顾问的个性化建议", es: "Toca para recibir consejos personalizados de tu consultor AI" },
+  "home.auraDefault":          { en: "Get personalized advice from Aura",  zh: "获取 Aura 的个性化建议", es: "Obtén consejos personalizados de Aura" },
 
   // Guest banner
   "home.guestBanner":          { en: "Sign up to sync your data across devices", zh: "注册以跨设备同步数据", es: "Regístrate para sincronizar tus datos entre dispositivos" },
 
   // Streak
   "home.streak":               { en: "{{n}}d streak",                  zh: "连续 {{n}} 天",          es: "{{n}} días seguidos" },
+  "streak.startToday":         { en: "Start your streak today!",       zh: "今天开始你的连签！",       es: "¡Comienza tu racha hoy!" },
+  "streak.keepGoing":          { en: "Keep going — you're building momentum!", zh: "继续加油——势头正猛！", es: "¡Sigue así, estás tomando impulso!" },
+  "streak.almostWeek":         { en: "Almost a full week — don't stop now!", zh: "快满一周了——别停下来！", es: "¡Casi una semana completa, no pares!" },
+  "streak.weekStrong":         { en: "Week-long warrior! Keep it up!",  zh: "周连签勇士！继续保持！",   es: "¡Guerrero semanal! ¡Sigue así!" },
+  "streak.legendary":          { en: "Legendary streak! You're unstoppable!", zh: "传奇连签！你势不可挡！", es: "¡Racha legendaria! ¡Eres imparable!" },
+  "streak.dayStreak":          { en: "Day Streak",                     zh: "天连签",                  es: "Días de racha" },
+  "streak.bestRecord":         { en: "Best Record",                    zh: "最佳记录",                es: "Mejor récord" },
+  "streak.dailyBonus":         { en: "Daily Bonus",                    zh: "每日加分",                es: "Bono diario" },
+  "streak.nextMilestone":      { en: "Next milestone: {{n}} days",     zh: "下一里程碑：{{n}} 天",     es: "Próximo hito: {{n}} días" },
+  "streak.days":               { en: "days",                           zh: "天",                      es: "días" },
+  "streak.bonusTiers":         { en: "Bonus Tiers",                    zh: "加分等级",                es: "Niveles de bono" },
 
   // ═══════════════════════════════════════════════════════════
   // Camera 扫描页
@@ -500,7 +510,7 @@ const STRINGS: Record<string, Record<string, string>> = {
   "vip.subtitle":          { en: "Unlock your full skin potential",    zh: "解锁你的全部皮肤潜力",    es: "Desbloquea todo el potencial de tu piel" },
   "vip.feature.unlimited": { en: "Unlimited AI scans",                 zh: "无限 AI 扫描",           es: "Escaneos AI ilimitados" },
   "vip.feature.reports":   { en: "Full AI skin reports",               zh: "完整 AI 皮肤报告",       es: "Informes AI completos de piel" },
-  "vip.feature.chat":      { en: "AI skin advisor chat",               zh: "AI 皮肤顾问聊天",        es: "Chat con asesor AI de piel" },
+  "vip.feature.chat":      { en: "Chat with Aura",                   zh: "与 Aura 聊天",          es: "Chatea con Aura" },
   "vip.feature.noAds":     { en: "No ads",                             zh: "无广告",                 es: "Sin anuncios" },
   "vip.feature.export":    { en: "PDF report export",                  zh: "PDF 报告导出",           es: "Exportar informe PDF" },
   "vip.tryFree":           { en: "Try 7 Days Free",                    zh: "免费试用 7 天",          es: "Prueba 7 días gratis" },
@@ -514,10 +524,12 @@ const STRINGS: Record<string, Record<string, string>> = {
   "onboarding.getStarted": { en: "Get Started",                        zh: "开始使用",               es: "Comenzar" },
 
   // ═══════════════════════════════════════════════════════════
-  // AI Chat
+  // Aura Chat
   // ═══════════════════════════════════════════════════════════
-  "chat.title":            { en: "AI Skin Advisor",                    zh: "AI 皮肤顾问",            es: "Asesor AI de piel" },
-  "chat.placeholder":      { en: "Ask about your skin…",               zh: "问问你的皮肤问题…",      es: "Pregunta sobre tu piel…" },
+  "chat.title":            { en: "Aura",                              zh: "Aura",                   es: "Aura" },
+  "chat.welcome":          { en: "Hi! I'm Aura, your personal skin consultant 👋",  zh: "嗨！我是 Aura，你的个人皮肤顾问 👋",  es: "¡Hola! Soy Aura, tu consultor de piel personal 👋" },
+  "chat.welcomeSub":       { en: "I can help you understand your scan results, explain skin trends, and give personalized advice based on your data.\n\nWhat would you like to know about your skin today?",  zh: "我可以帮你理解扫描结果、解释皮肤趋势，并根据你的数据提供个性化建议。\n\n今天你想了解你的皮肤什么？",  es: "Puedo ayudarte a entender los resultados de tus escaneos, explicar las tendencias de tu piel y darte consejos personalizados basados en tus datos.\n\n¿Qué te gustaría saber sobre tu piel hoy?" },
+  "chat.placeholder":      { en: "Ask Aura about your skin…",         zh: "问问 Aura 关于你的皮肤…",  es: "Pregúntale a Aura sobre tu piel…" },
   "chat.send":             { en: "Send",                               zh: "发送",                   es: "Enviar" },
   "chat.thinking":         { en: "Thinking…",                          zh: "思考中…",                es: "Pensando…" },
 
@@ -535,6 +547,72 @@ const STRINGS: Record<string, Record<string, string>> = {
   "state.error.network":   { en: "Network error. Check your connection and try again.", zh: "网络错误，请检查连接后重试。", es: "Error de red. Verifica tu conexión e intenta de nuevo." },
   "state.empty.title":     { en: "No data yet",                        zh: "暂无数据",              es: "Sin datos aún" },
   "state.empty.subtitle":  { en: "Try taking action to get started",   zh: "尝试操作来开始",        es: "Intenta tomar medidas para empezar" },
+
+  // ═══════════════════════════════════════════════════════════
+  // Camera preview — Type picker and edits
+  // ═══════════════════════════════════════════════════════════
+  "camera.typePickerTitle": { en: "What type of spot?", zh: "痘痘类型是什么？", es: "¿Qué tipo de mancha?" },
+  "camera.typePickerSub":  { en: "Select the acne type to add", zh: "选择要添加的痘痘类型", es: "Selecciona el tipo de acné a agregar" },
+  "camera.disclaimer":     { en: "AI results may not be fully accurate. You can always tap \"✏️ Edit\" to correct any detections.", zh: "AI 结果可能不完全准确。你可以随时点击「✏️ 编辑」来纠正任何检测。", es: "Los resultados de AI pueden no ser completamente precisos. Siempre puedes tocar \"✏️ Editar\" para corregir cualquier detección." },
+  "camera.previewSummary": { en: "AI Assessment",       zh: "AI 评估",      es: "Evaluación de IA" },
+  "camera.tips":           { en: "Tips",               zh: "建议",        es: "Consejos" },
+  "camera.toggleShowAnnotations": { en: "👁 Tap to {{action}}", zh: "👁 点击{{action}}", es: "👁 Toca para {{action}}" },
+  "camera.toggleShow":     { en: "show", zh: "显示", es: "mostrar" },
+  "camera.toggleHide":     { en: "hide", zh: "隐藏", es: "ocultar" },
+
+  // ═══════════════════════════════════════════════════════════
+  // History page
+  // ═══════════════════════════════════════════════════════════
+  "history.scanTrendLabel": { en: "Score Trend", zh: "分数趋势", es: "Tendencia de puntuación" },
+  "history.improving":     { en: "↗ Improving",   zh: "↗ 改善中", es: "↗ Mejorando" },
+  "history.declining":     { en: "↘ Declining",   zh: "↘ 下降中", es: "↘ Bajando" },
+  "history.scanDaily":     { en: "Scan daily to see trend", zh: "每天扫描以查看趋势", es: "Escanea diariamente para ver la tendencia" },
+  "history.lastRecords":   { en: "Last {{n}} records", zh: "最近 {{n}} 条记录", es: "Últimos {{n}} registros" },
+  "history.daysLabel":     { en: "/ {{days}} days", zh: "/ {{days}} 天", es: "/ {{days}} días" },
+  "history.incredible":    { en: "🔥 Incredible!", zh: "🔥 太棒了！", es: "¡🔥 Increíble!" },
+  "history.greatWork":     { en: "💪 Great work!", zh: "💪 做得很好！", es: "¡💪 ¡Excelente trabajo!" },
+  "history.keepGoing":     { en: "📸 Keep going!", zh: "📸 继续加油！", es: "¡📸 ¡Sigue adelante!" },
+  "history.justStarted":   { en: "✨ Just started", zh: "✨ 刚开始", es: "✨ Acabo de empezar" },
+  "history.unlockTrend":   { en: "Unlock trend",   zh: "解锁趋势", es: "Desbloquear tendencia" },
+  "history.weeklyProgress":{ en: "Weekly progress with VIP.", zh: "VIP 专属的每周进度。", es: "Progreso semanal con VIP." },
+  "history.weekdaySun":    { en: "Sun", zh: "日", es: "Dom" },
+  "history.weekdayMon":    { en: "Mon", zh: "一", es: "Lun" },
+  "history.weekdayTue":    { en: "Tue", zh: "二", es: "Mar" },
+  "history.weekdayWed":    { en: "Wed", zh: "三", es: "Mié" },
+  "history.weekdayThu":    { en: "Thu", zh: "四", es: "Jue" },
+  "history.weekdayFri":    { en: "Fri", zh: "五", es: "Vie" },
+  "history.weekdaySat":    { en: "Sat", zh: "六", es: "Sáb" },
+  "history.tapDayToView":  { en: "Tap day to view", zh: "点击某一天来查看", es: "Toca un día para ver" },
+  "history.recent":        { en: "Recent", zh: "最近", es: "Reciente" },
+
+  // ═══════════════════════════════════════════════════════════
+  // Report page — Additional strings
+  // ═══════════════════════════════════════════════════════════
+  "report.spots":          { en: "Spots", zh: "痘痘", es: "Manchas" },
+  "report.severity":       { en: "Severity", zh: "严重程度", es: "Severidad" },
+  "report.confidence":     { en: "Confidence", zh: "置信度", es: "Confianza" },
+
+  // ═══════════════════════════════════════════════════════════
+  // Community — Additional strings for inline messages
+  // ═══════════════════════════════════════════════════════════
+  "community.photoPermissionAlert": { en: "🖼️", zh: "🖼️", es: "🖼️" },
+  "community.photoPermissionMsg": { en: "Please allow photo access to attach images.", zh: "请允许访问照片以附加图像。", es: "Por favor, permite el acceso a fotos para adjuntar imágenes." },
+  "community.photoPermissionMsgComments": { en: "Please allow photo access.", zh: "请允许访问照片。", es: "Por favor, permite el acceso a fotos." },
+
+  // ═══════════════════════════════════════════════════════════
+  // Scanning confirmation alerts
+  // ═══════════════════════════════════════════════════════════
+  "camera.alreadyDone":    { en: "✅ Already Done!", zh: "✅ 已完成！", es: "✅ ¡Ya hecho!" },
+  "camera.alreadyDoneSub": { en: "You already completed this task today.", zh: "你今天已经完成了此任务。", es: "Ya completaste esta tarea hoy." },
+  "camera.streakInfo":     { en: "🔥 {{streak}}-day streak!", zh: "🔥 {{streak}} 天连签！", es: "¡🔥 {{streak}} días seguidos!" },
+  "camera.viewHistory":    { en: "View History", zh: "查看历史", es: "Ver historial" },
+
+  // ═══════════════════════════════════════════════════════════
+  // Camera edit mode
+  // ═══════════════════════════════════════════════════════════
+  "camera.edit":           { en: "✏️ Edit", zh: "✏️ 编辑", es: "✏️ Editar" },
+  "camera.done":           { en: "✓ Done", zh: "✓ 完成", es: "✓ Hecho" },
+  "camera.undo":           { en: "↩︎", zh: "↩︎", es: "↩︎" },
 };
 
 // ─── Context ──────────────────────────────────────────────

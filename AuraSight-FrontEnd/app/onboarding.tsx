@@ -21,140 +21,108 @@ import { useT } from "../lib/i18n";
 import Svg, {
   Path,
   Circle,
-  Ellipse,
   Defs,
   LinearGradient as SvgLinearGradient,
-  RadialGradient,
   Stop,
-  Line,
-  G,
 } from "react-native-svg";
 
 const { width, height } = Dimensions.get("window");
-const SPRING = { tension: 180, friction: 12, useNativeDriver: true };
-const DOT_SIZE = 7;
-const DOT_GAP = 10;
+const DOT_SIZE = 6;
+const DOT_GAP = 12;
 
-// ═════════════════════════════════════════════════════════════
-// PAGE CONTENT
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// PAGE CONTENT — 3 pages: Hook → Proof → CTA
+// ═══════════════════════════════════════════════════════════════
 type PageDef = {
   id: string;
   eyebrow: string;
-  titleLines: [string, string]; // plain + accent
+  titleLines: [string, string];
   sub: string;
-  hero: "hook" | "proof" | "progress" | "community" | "cta";
+  hero: "hook" | "features" | "cta";
 };
 
 const PAGES: PageDef[] = [
   {
     id: "hook",
-    eyebrow: "AI SKIN INTELLIGENCE",
-    titleLines: ["See what", "mirrors miss."],
-    sub: "Your skin tells a story. Our AI reads every word — in 30 seconds.",
+    eyebrow: "AI SKIN SCAN",
+    titleLines: ["Snap a photo,", "get instant analysis."],
+    sub: "Point your camera at any area of concern. Our AI identifies and locates acne in real time — no appointment needed.",
     hero: "hook",
   },
   {
-    id: "proof",
-    eyebrow: "CLINICAL-GRADE DETECTION",
-    titleLines: ["4 lesion types,", "counted."],
-    sub: 'Not just "you have acne." Medical-level breakdown, tracked scan by scan.',
-    hero: "proof",
-  },
-  {
-    id: "progress",
-    eyebrow: "PATTERNS THAT MATTER",
-    titleLines: ["Your skin,", "day by day."],
-    sub: "Scan daily. Watch trends emerge. Small changes add up to real ones.",
-    hero: "progress",
-  },
-  {
-    id: "community",
-    eyebrow: "YOU'RE NOT ALONE",
-    titleLines: ["Real people,", "real skin."],
-    sub: "Share tips, ask questions, and learn from a community on the same journey.",
-    hero: "community",
+    id: "features",
+    eyebrow: "EVERYTHING YOU NEED",
+    titleLines: ["Built for your", "skin journey."],
+    sub: "",
+    hero: "features",
   },
   {
     id: "cta",
     eyebrow: "",
     titleLines: ["Start with", "one scan."],
-    sub: "",
+    sub: "Your first scan is free — no account required. Sign up to save your history and track progress over time.",
     hero: "cta",
   },
 ];
 
-// Color palette
+// Color palette — slightly refined for a calmer feel
 const C = {
   ink: "#1a1530",
-  inkSoft: "rgba(26,21,48,0.62)",
-  inkMuted: "rgba(26,21,48,0.42)",
+  inkSoft: "rgba(26,21,48,0.55)",
+  inkMuted: "rgba(26,21,48,0.35)",
   accent: "#b77cff",
   accent2: "#ff9fc2",
   accent3: "#7ec8ff",
-  glassBg: "rgba(255,255,255,0.55)",
-  glassBr: "rgba(255,255,255,0.65)",
 };
 
-// ═════════════════════════════════════════════════════════════
-// HERO COMPONENTS (one per page)
-// ═════════════════════════════════════════════════════════════
-
-// Page 1: Portrait + layered scan rings (radial glow, rotating dashed outer,
-// gradient middle, pulsing inner)
+// ═══════════════════════════════════════════════════════════════
+// HERO: Hook — portrait with scan rings
+// ═══════════════════════════════════════════════════════════════
 function HeroHook() {
-  const pulseMid = useRef(new Animated.Value(1)).current;
-  const pulseInner = useRef(new Animated.Value(1)).current;
+  const pulseRing = useRef(new Animated.Value(1)).current;
   const rotOuter = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
   const sweepY = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const mkPulse = (v: Animated.Value, delay: number, peak: number, dur: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(v, {
-            toValue: peak,
-            duration: dur,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(v, {
-            toValue: 1,
-            duration: dur,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      );
-    mkPulse(pulseMid, 0, 1.05, 2200).start();
-    mkPulse(pulseInner, 700, 1.035, 1800).start();
-
-    // Glow fade in/out
     Animated.loop(
       Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseRing, {
+          toValue: 1.04,
+          duration: 2400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseRing, {
+          toValue: 1,
+          duration: 2400,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
       ])
     ).start();
 
-    // Slow rotation for outer dashed ring
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 2800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 2800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+
     Animated.loop(
       Animated.timing(rotOuter, {
         toValue: 1,
-        duration: 22000,
+        duration: 24000,
         easing: Easing.linear,
         useNativeDriver: true,
       })
     ).start();
 
-    // Scan sweep
     Animated.loop(
       Animated.sequence([
         Animated.timing(sweepY, {
           toValue: 1,
-          duration: 3000,
+          duration: 3200,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
@@ -163,89 +131,42 @@ function HeroHook() {
     ).start();
   }, []);
 
-  const sweepTranslate = sweepY.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-145, 145],
-  });
-  const sweepOpacity = sweepY.interpolate({
-    inputRange: [0, 0.15, 0.85, 1],
-    outputRange: [0, 1, 1, 0],
-  });
-  const rotate = rotOuter.interpolate({
-    inputRange: [0, 1],
-    outputRange: ["0deg", "360deg"],
-  });
-  const glowOpacity = glow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.35, 0.75],
-  });
+  const sweepTranslate = sweepY.interpolate({ inputRange: [0, 1], outputRange: [-130, 130] });
+  const sweepOpacity = sweepY.interpolate({ inputRange: [0, 0.12, 0.88, 1], outputRange: [0, 1, 1, 0] });
+  const rotate = rotOuter.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const glowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.6] });
 
-  // Ring sizes (svg canvas 360x360 matches wrap)
-  const C_ = 180; // center
-  const R_OUTER = 170;
-  const R_MID = 152;
-  const R_INNER = 135;
+  const CENTER = 160;
+  const R_OUTER = 150;
+  const R_INNER = 134;
 
   return (
     <View style={heroSt.wrap}>
-      {/* Radial glow behind face */}
       <Animated.View style={[heroSt.glow, { opacity: glowOpacity }]} />
 
-      {/* Outer dashed ring — slow rotating */}
+      {/* Outer dashed ring */}
       <Animated.View style={[heroSt.ringSvg, { transform: [{ rotate }] }]}>
-        <Svg width={360} height={360}>
+        <Svg width={320} height={320}>
           <Defs>
             <SvgLinearGradient id="outerStroke" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#c9a4ff" stopOpacity="0.9" />
-              <Stop offset="1" stopColor="#ff9fc2" stopOpacity="0.9" />
+              <Stop offset="0" stopColor="#c9a4ff" stopOpacity="0.7" />
+              <Stop offset="1" stopColor="#ff9fc2" stopOpacity="0.7" />
             </SvgLinearGradient>
           </Defs>
-          <Circle
-            cx={C_}
-            cy={C_}
-            r={R_OUTER}
-            stroke="url(#outerStroke)"
-            strokeWidth={1.5}
-            strokeDasharray="4 8"
-            fill="none"
-            opacity={0.85}
-          />
+          <Circle cx={CENTER} cy={CENTER} r={R_OUTER} stroke="url(#outerStroke)" strokeWidth={1.2} strokeDasharray="4 10" fill="none" />
         </Svg>
       </Animated.View>
 
-      {/* Middle gradient ring — gentle pulse */}
-      <Animated.View style={[heroSt.ringSvg, { transform: [{ scale: pulseMid }] }]}>
-        <Svg width={360} height={360}>
+      {/* Inner ring — gentle pulse */}
+      <Animated.View style={[heroSt.ringSvg, { transform: [{ scale: pulseRing }] }]}>
+        <Svg width={320} height={320}>
           <Defs>
-            <SvgLinearGradient id="midStroke" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor="#b77cff" stopOpacity="1" />
-              <Stop offset="1" stopColor="#ff5e8e" stopOpacity="0.9" />
+            <SvgLinearGradient id="innerStroke" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor="#b77cff" stopOpacity="0.8" />
+              <Stop offset="1" stopColor="#ff5e8e" stopOpacity="0.6" />
             </SvgLinearGradient>
           </Defs>
-          <Circle
-            cx={C_}
-            cy={C_}
-            r={R_MID}
-            stroke="url(#midStroke)"
-            strokeWidth={1.4}
-            fill="none"
-            opacity={0.8}
-          />
-        </Svg>
-      </Animated.View>
-
-      {/* Inner ring hugging face — brighter pulse */}
-      <Animated.View style={[heroSt.ringSvg, { transform: [{ scale: pulseInner }] }]}>
-        <Svg width={360} height={360}>
-          <Circle
-            cx={C_}
-            cy={C_}
-            r={R_INNER}
-            stroke="#ff6fa3"
-            strokeWidth={1.8}
-            fill="none"
-            opacity={0.85}
-          />
+          <Circle cx={CENTER} cy={CENTER} r={R_INNER} stroke="url(#innerStroke)" strokeWidth={1.2} fill="none" />
         </Svg>
       </Animated.View>
 
@@ -256,155 +177,72 @@ function HeroHook() {
           style={heroSt.faceImg}
           resizeMode="contain"
         />
-
-        {/* Scan sweep bar */}
         <Animated.View
           style={[
             heroSt.sweep,
-            {
-              transform: [{ translateY: sweepTranslate }],
-              opacity: sweepOpacity,
-            },
+            { transform: [{ translateY: sweepTranslate }], opacity: sweepOpacity },
           ]}
         />
-
-        {/* Detection dots — positioned relative to face */}
-        <View style={[heroSt.dot, { top: "28%", left: "55%" }]} />
-        <View style={[heroSt.dot, { top: "48%", left: "35%" }]} />
-        <View style={[heroSt.dot, { top: "52%", left: "68%" }]} />
-        <View style={[heroSt.dot, { top: "68%", left: "48%" }]} />
+        <View style={[heroSt.dot, { top: "30%", left: "55%" }]} />
+        <View style={[heroSt.dot, { top: "50%", left: "34%" }]} />
+        <View style={[heroSt.dot, { top: "65%", left: "50%" }]} />
       </View>
     </View>
   );
 }
 
-// Page 2: Proof — stack of 4 detection class cards with stagger entry + SVG glyphs
-function LesionGlyph({ type, size = 20 }: { type: "comedone" | "papule" | "pustule" | "nodule"; size?: number }) {
-  const c = "#ffffff";
-  if (type === "comedone") {
-    // Small dark dot in a ring — blackhead
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.6" fill="none" opacity="0.5" />
-        <Circle cx="12" cy="12" r="3.5" fill={c} />
-      </Svg>
-    );
-  }
-  if (type === "papule") {
-    // Raised bump
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Path d="M4 17 Q12 4 20 17" stroke={c} strokeWidth="1.8" fill="none" strokeLinecap="round" />
-        <Circle cx="12" cy="11" r="3" fill={c} opacity="0.9" />
-      </Svg>
-    );
-  }
-  if (type === "pustule") {
-    // Filled bump with center dot (pus)
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24">
-        <Circle cx="12" cy="12" r="7" fill={c} opacity="0.4" />
-        <Circle cx="12" cy="12" r="4.5" fill={c} />
-        <Circle cx="12" cy="12" r="1.5" fill="#ff5e8e" />
-      </Svg>
-    );
-  }
-  // nodule — deep, concentric
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Circle cx="12" cy="12" r="9" stroke={c} strokeWidth="1.4" fill="none" opacity="0.55" />
-      <Circle cx="12" cy="12" r="6" stroke={c} strokeWidth="1.4" fill="none" opacity="0.75" />
-      <Circle cx="12" cy="12" r="3" fill={c} />
-    </Svg>
-  );
-}
+// ═══════════════════════════════════════════════════════════════
+// HERO: Features — multi-feature showcase cards
+// ═══════════════════════════════════════════════════════════════
+const FEATURES = [
+  {
+    icon: "🔬",
+    title: "Clinical-Grade Detection",
+    desc: "Identifies 4 acne types: comedones, papules, pustules & nodules",
+    colors: ["#b77cff", "#9b6ee8"] as const,
+  },
+  {
+    icon: "📊",
+    title: "Progress Tracking",
+    desc: "Scan daily — watch trends emerge and see real improvement over time",
+    colors: ["#ff9fc2", "#ff7ba8"] as const,
+  },
+  {
+    icon: "💬",
+    title: "Community",
+    desc: "Share tips, ask questions, and learn from others on the same journey",
+    colors: ["#7ec8ff", "#5ba8e8"] as const,
+  },
+  {
+    icon: "📝",
+    title: "Skin Diary",
+    desc: "Log triggers like diet, sleep & stress — discover what affects your skin",
+    colors: ["#6ee8a0", "#4dc882"] as const,
+  },
+];
 
-function HeroProof() {
-  const classes = [
-    {
-      type: "comedone" as const,
-      name: "Comedones",
-      desc: "Blackheads & whiteheads",
-      count: 12,
-      total: 15,
-      colors: ["#b77cff", "#9b6ee8"] as const,
-    },
-    {
-      type: "papule" as const,
-      name: "Papules",
-      desc: "Red inflamed bumps",
-      count: 5,
-      total: 15,
-      colors: ["#ff9fc2", "#ff7ba8"] as const,
-    },
-    {
-      type: "pustule" as const,
-      name: "Pustules",
-      desc: "Pus-filled lesions",
-      count: 2,
-      total: 15,
-      colors: ["#ff6b9d", "#ff3d81"] as const,
-    },
-    {
-      type: "nodule" as const,
-      name: "Nodules",
-      desc: "Deep severe lesions",
-      count: 0,
-      total: 15,
-      colors: ["#7ec8ff", "#5ba8e8"] as const,
-    },
-  ];
-
-  // Stagger entry animation
-  const anims = useRef(classes.map(() => new Animated.Value(0))).current;
+function HeroFeatures() {
+  const anims = useRef(FEATURES.map(() => new Animated.Value(0))).current;
   useEffect(() => {
     Animated.stagger(
-      90,
+      100,
       anims.map((a) =>
-        Animated.spring(a, { toValue: 1, tension: 120, friction: 11, useNativeDriver: true })
+        Animated.spring(a, { toValue: 1, tension: 120, friction: 12, useNativeDriver: true })
       )
     ).start();
   }, []);
 
   return (
-    <View style={heroSt.proofStack}>
-      {classes.map((c, i) => {
-        const translateY = anims[i].interpolate({
-          inputRange: [0, 1],
-          outputRange: [24, 0],
-        });
-        const opacity = anims[i];
-        const barWidth = `${Math.max(4, (c.count / c.total) * 100)}%` as const;
+    <View style={heroSt.featuresGrid}>
+      {FEATURES.map((f, i) => {
+        const translateY = anims[i].interpolate({ inputRange: [0, 1], outputRange: [20, 0] });
         return (
-          <Animated.View
-            key={i}
-            style={[heroSt.proofCard, { opacity, transform: [{ translateY }] }]}
-          >
-            <LinearGradient
-              colors={c.colors}
-              style={heroSt.proofDot}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <LesionGlyph type={c.type} size={18} />
+          <Animated.View key={i} style={[heroSt.featureCard, { opacity: anims[i], transform: [{ translateY }] }]}>
+            <LinearGradient colors={f.colors} style={heroSt.featureIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <Text style={{ fontSize: 20 }}>{f.icon}</Text>
             </LinearGradient>
-            <View style={{ flex: 1 }}>
-              <Text style={heroSt.proofName}>{c.name}</Text>
-              <Text style={heroSt.proofDesc}>{c.desc}</Text>
-              {/* Confidence / proportion bar */}
-              <View style={heroSt.proofBarBg}>
-                <LinearGradient
-                  colors={c.colors}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[heroSt.proofBarFg, { width: barWidth }]}
-                />
-              </View>
-            </View>
-            <View style={{ alignItems: "flex-end", minWidth: 44 }}>
-              <Text style={heroSt.proofCount}>{c.count}</Text>
-              <Text style={heroSt.proofUnit}>detected</Text>
-            </View>
+            <Text style={heroSt.featureTitle}>{f.title}</Text>
+            <Text style={heroSt.featureDesc}>{f.desc}</Text>
           </Animated.View>
         );
       })}
@@ -412,115 +250,9 @@ function HeroProof() {
   );
 }
 
-// Page 3: Progress — trend chart with animated path drawing + glowing endpoint
-const AnimatedPath = Animated.createAnimatedComponent(Path);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-const LINE_D = "M0,22 C30,30 50,18 80,40 C110,55 130,42 160,68 C190,85 210,78 260,100";
-const LINE_LEN = 320; // approximate path length for stroke-dash animation
-
-function HeroProgress() {
-  const draw = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(draw, {
-      toValue: 1,
-      duration: 1600,
-      delay: 200,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: false }),
-      ])
-    ).start();
-  }, []);
-
-  const dashOffset = draw.interpolate({
-    inputRange: [0, 1],
-    outputRange: [LINE_LEN, 0],
-  });
-  const endR = pulse.interpolate({ inputRange: [0, 1], outputRange: [5, 8] });
-  const endOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0.15] });
-  const areaOpacity = draw.interpolate({ inputRange: [0, 0.6, 1], outputRange: [0, 0, 1] });
-
-  return (
-    <View style={heroSt.progressCard}>
-      <View style={heroSt.pcHeader}>
-        <Text style={heroSt.pcLabel}>INFLAMMATION · 14 DAYS</Text>
-        <View style={heroSt.winChip}>
-          <Text style={heroSt.winChipText}>↓ 42%</Text>
-        </View>
-      </View>
-
-      <View style={heroSt.chart}>
-        <Svg width="100%" height="100%" viewBox="0 0 260 120" preserveAspectRatio="none">
-          <Defs>
-            <SvgLinearGradient id="areaG" x1="0" x2="0" y1="0" y2="1">
-              <Stop offset="0" stopColor="#b77cff" stopOpacity="0.45" />
-              <Stop offset="1" stopColor="#b77cff" stopOpacity="0" />
-            </SvgLinearGradient>
-            <SvgLinearGradient id="lineG" x1="0" x2="1" y1="0" y2="0">
-              <Stop offset="0" stopColor="#b77cff" />
-              <Stop offset="1" stopColor="#ff9fc2" />
-            </SvgLinearGradient>
-          </Defs>
-
-          {/* Grid lines */}
-          <Line x1="0" y1="30" x2="260" y2="30" stroke="rgba(26,21,48,0.08)" strokeDasharray="2,4" />
-          <Line x1="0" y1="60" x2="260" y2="60" stroke="rgba(26,21,48,0.08)" strokeDasharray="2,4" />
-          <Line x1="0" y1="90" x2="260" y2="90" stroke="rgba(26,21,48,0.08)" strokeDasharray="2,4" />
-
-          {/* Filled area appears after line draws */}
-          <AnimatedPath
-            d="M0,22 C30,30 50,18 80,40 C110,55 130,42 160,68 C190,85 210,78 260,100 L260,120 L0,120 Z"
-            fill="url(#areaG)"
-            opacity={areaOpacity as any}
-          />
-
-          {/* Animated line drawing */}
-          <AnimatedPath
-            d={LINE_D}
-            fill="none"
-            stroke="url(#lineG)"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeDasharray={LINE_LEN}
-            strokeDashoffset={dashOffset as any}
-          />
-
-          {/* Start point */}
-          <Circle cx="0" cy="22" r="4" fill="#b77cff" />
-
-          {/* End point — pulsing glow halo + solid center */}
-          <AnimatedCircle cx="260" cy="100" r={endR as any} fill="#ff9fc2" opacity={endOpacity as any} />
-          <Circle cx="260" cy="100" r="5" fill="#ff9fc2" stroke="#fff" strokeWidth="2" />
-        </Svg>
-      </View>
-
-      <View style={heroSt.pcStats}>
-        <View style={heroSt.statCol}>
-          <Text style={heroSt.statNum}>19</Text>
-          <Text style={heroSt.statName}>Day 1</Text>
-        </View>
-        <View style={heroSt.statCol}>
-          <Text style={[heroSt.statNum, { color: "#b77cff" }]}>14</Text>
-          <Text style={heroSt.statName}>Day 7</Text>
-        </View>
-        <View style={heroSt.statCol}>
-          <Text style={[heroSt.statNum, { color: "#10b981" }]}>11</Text>
-          <Text style={heroSt.statName}>Today</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-// Page 4: CTA card — SVG camera icon with shimmer sweep
+// ═══════════════════════════════════════════════════════════════
+// HERO: CTA — clean camera icon card
+// ═══════════════════════════════════════════════════════════════
 function HeroCTA() {
   const shimmer = useRef(new Animated.Value(0)).current;
   const bob = useRef(new Animated.Value(0)).current;
@@ -528,26 +260,23 @@ function HeroCTA() {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.delay(400),
+        Animated.delay(600),
         Animated.timing(shimmer, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
         Animated.timing(shimmer, { toValue: 0, duration: 0, useNativeDriver: true }),
-        Animated.delay(1600),
+        Animated.delay(2000),
       ])
     ).start();
     Animated.loop(
       Animated.sequence([
-        Animated.timing(bob, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(bob, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     ).start();
   }, []);
 
   const shimmerX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-90, 90] });
-  const shimmerOpacity = shimmer.interpolate({
-    inputRange: [0, 0.25, 0.75, 1],
-    outputRange: [0, 0.9, 0.9, 0],
-  });
-  const bobY = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
+  const shimmerOpacity = shimmer.interpolate({ inputRange: [0, 0.25, 0.75, 1], outputRange: [0, 0.85, 0.85, 0] });
+  const bobY = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -3] });
 
   return (
     <View style={heroSt.ctaCard}>
@@ -558,15 +287,13 @@ function HeroCTA() {
           end={{ x: 1, y: 1 }}
           style={heroSt.ctaIcon}
         >
-          {/* Shimmer sweep behind the icon glyph */}
           <Animated.View
             style={[
               heroSt.ctaShimmer,
               { opacity: shimmerOpacity, transform: [{ translateX: shimmerX }, { rotate: "20deg" }] },
             ]}
           />
-          {/* Camera SVG */}
-          <Svg width="38" height="38" viewBox="0 0 24 24">
+          <Svg width="36" height="36" viewBox="0 0 24 24">
             <Path
               d="M6.5 7 L8.2 4.8 H15.8 L17.5 7 H20 A2 2 0 0 1 22 9 V18 A2 2 0 0 1 20 20 H4 A2 2 0 0 1 2 18 V9 A2 2 0 0 1 4 7 Z"
               fill="#fff"
@@ -581,100 +308,22 @@ function HeroCTA() {
 
       <Text style={heroSt.ctaTitle}>Try it in 30 seconds</Text>
       <Text style={heroSt.ctaSub}>
-        No signup needed to start.{"\n"}Your first scan is on us.
+        No signup needed to scan.{"\n"}Your first analysis is free.
       </Text>
       <View style={heroSt.trustRow}>
-        <Text style={heroSt.trustItem}>✓ On-device AI</Text>
-        <Text style={heroSt.trustItem}>✓ No ads</Text>
-        <Text style={heroSt.trustItem}>✓ Your data</Text>
+        <Text style={heroSt.trustItem}>On-device AI</Text>
+        <View style={heroSt.trustDot} />
+        <Text style={heroSt.trustItem}>No ads</Text>
+        <View style={heroSt.trustDot} />
+        <Text style={heroSt.trustItem}>Private by default</Text>
       </View>
     </View>
   );
 }
 
-// Page 5: Community — avatars + speech bubbles showing real people sharing
-function HeroCommunity() {
-  const anims = useRef([0, 1, 2].map(() => new Animated.Value(0))).current;
-
-  useEffect(() => {
-    Animated.stagger(
-      120,
-      anims.map((a) =>
-        Animated.spring(a, { toValue: 1, tension: 100, friction: 10, useNativeDriver: true })
-      )
-    ).start();
-  }, []);
-
-  const bubbles = [
-    { avatar: "🧑‍🦱", text: "My scars faded in 3 weeks!", colors: ["#b77cff", "#9b6ee8"] as const },
-    { avatar: "👩‍🦰", text: "Which moisturizer for oily skin?", colors: ["#ff9fc2", "#ff7ba8"] as const },
-    { avatar: "🧑‍🦳", text: "Day 30 streak — feeling great ✨", colors: ["#7ec8ff", "#5ba8e8"] as const },
-  ];
-
-  return (
-    <View style={heroSt.communityWrap}>
-      {/* Central community glow */}
-      <View style={heroSt.communityGlow} />
-
-      {/* Floating avatar ring */}
-      <View style={heroSt.avatarRing}>
-        {["👩", "🧑", "👱‍♀️", "👨‍🦱", "👩‍🦰", "🧑‍🦳"].map((e, i) => {
-          const angle = (i / 6) * 2 * Math.PI - Math.PI / 2;
-          const r = 100;
-          return (
-            <View
-              key={i}
-              style={[
-                heroSt.floatingAvatar,
-                {
-                  left: 130 + r * Math.cos(angle) - 20,
-                  top: 50 + r * Math.sin(angle) - 20,
-                },
-              ]}
-            >
-              <Text style={{ fontSize: 22 }}>{e}</Text>
-            </View>
-          );
-        })}
-        {/* Center heart */}
-        <View style={heroSt.centerHeart}>
-          <Text style={{ fontSize: 28 }}>💗</Text>
-        </View>
-      </View>
-
-      {/* Speech bubbles */}
-      {bubbles.map((b, i) => {
-        const translateY = anims[i].interpolate({
-          inputRange: [0, 1],
-          outputRange: [30, 0],
-        });
-        return (
-          <Animated.View
-            key={i}
-            style={[
-              heroSt.bubble,
-              { opacity: anims[i], transform: [{ translateY }] },
-            ]}
-          >
-            <LinearGradient
-              colors={b.colors}
-              style={heroSt.bubbleAvatar}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
-              <Text style={{ fontSize: 16 }}>{b.avatar}</Text>
-            </LinearGradient>
-            <Text style={heroSt.bubbleText}>{b.text}</Text>
-          </Animated.View>
-        );
-      })}
-    </View>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // PAGE WRAPPER
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 function OnboardingPage({
   page,
   isVisible,
@@ -687,55 +336,34 @@ function OnboardingPage({
   scrollX: Animated.Value;
 }) {
   const fadeIn = useRef(new Animated.Value(0)).current;
-  const riseY = useRef(new Animated.Value(40)).current;
+  const riseY = useRef(new Animated.Value(30)).current;
 
   useEffect(() => {
     if (isVisible) {
       Animated.parallel([
-        Animated.timing(fadeIn, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.spring(riseY, { toValue: 0, ...SPRING }),
+        Animated.timing(fadeIn, { toValue: 1, duration: 500, useNativeDriver: true }),
+        Animated.spring(riseY, { toValue: 0, tension: 160, friction: 12, useNativeDriver: true }),
       ]).start();
     } else {
       fadeIn.setValue(0);
-      riseY.setValue(40);
+      riseY.setValue(30);
     }
   }, [isVisible]);
 
   const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
-  const pageOpacity = scrollX.interpolate({
-    inputRange,
-    outputRange: [0, 1, 0],
-    extrapolate: "clamp",
-  });
-  const pageScale = scrollX.interpolate({
-    inputRange,
-    outputRange: [0.92, 1, 0.92],
-    extrapolate: "clamp",
-  });
+  const pageOpacity = scrollX.interpolate({ inputRange, outputRange: [0, 1, 0], extrapolate: "clamp" });
+  const pageScale = scrollX.interpolate({ inputRange, outputRange: [0.94, 1, 0.94], extrapolate: "clamp" });
 
   let hero: React.ReactNode = null;
   if (page.hero === "hook") hero = <HeroHook />;
-  else if (page.hero === "proof") hero = <HeroProof />;
-  else if (page.hero === "progress") hero = <HeroProgress />;
-  else if (page.hero === "community") hero = <HeroCommunity />;
+  else if (page.hero === "features") hero = <HeroFeatures />;
   else hero = <HeroCTA />;
 
   const centerText = page.hero === "cta";
 
   return (
     <Animated.View
-      style={[
-        st.page,
-        {
-          width,
-          opacity: pageOpacity,
-          transform: [{ scale: pageScale }],
-        },
-      ]}
+      style={[st.page, { width, opacity: pageOpacity, transform: [{ scale: pageScale }] }]}
     >
       <View style={st.heroArea}>{hero}</View>
 
@@ -743,10 +371,7 @@ function OnboardingPage({
         style={[
           st.textBlock,
           centerText && { alignItems: "center" },
-          {
-            opacity: fadeIn,
-            transform: [{ translateY: riseY }],
-          },
+          { opacity: fadeIn, transform: [{ translateY: riseY }] },
         ]}
       >
         {page.eyebrow ? (
@@ -760,18 +385,16 @@ function OnboardingPage({
           <Text style={st.headlineAccent}>{page.titleLines[1]}</Text>
         </Text>
         {page.sub ? (
-          <Text style={[st.sub, centerText && { textAlign: "center" }]}>
-            {page.sub}
-          </Text>
+          <Text style={[st.sub, centerText && { textAlign: "center" }]}>{page.sub}</Text>
         ) : null}
       </Animated.View>
     </Animated.View>
   );
 }
 
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 // MAIN SCREEN
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 export default function OnboardingScreen() {
   const { t } = useT();
   const [currentPage, setCurrentPage] = useState(0);
@@ -802,10 +425,7 @@ export default function OnboardingScreen() {
 
   function handleContinue() {
     if (currentPage < PAGES.length - 1) {
-      scrollRef.current?.scrollTo({
-        x: (currentPage + 1) * width,
-        animated: true,
-      });
+      scrollRef.current?.scrollTo({ x: (currentPage + 1) * width, animated: true });
     }
   }
 
@@ -813,21 +433,30 @@ export default function OnboardingScreen() {
 
   return (
     <View style={st.container}>
-      {/* Background gradient */}
+      {/* Background — clean subtle gradient */}
       <LinearGradient
-        colors={["#FFF0F7", "#F3EEFF", "#EAF3FF"]}
+        colors={["#FEFAFF", "#F6F0FF", "#F0F4FF"]}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
 
-      {/* Soft blob layers for depth */}
+      {/* Minimal ambient blobs */}
       <View style={[st.blob, st.blobPink]} />
       <View style={[st.blob, st.blobLav]} />
-      <View style={[st.blob, st.blobSky]} />
 
-      {/* Skip */}
-      <SkipButton isLast={isLast} finish={finish} />
+      {/* Skip (only on non-last pages) */}
+      {!isLast && (
+        <SafeAreaView style={st.skipWrap} pointerEvents="box-none">
+          <TouchableOpacity
+            onPress={() => finish("/(tabs)")}
+            activeOpacity={0.7}
+            style={st.skipBtn}
+          >
+            <Text style={st.skipText}>{t("onboarding.skip")}</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      )}
 
       {/* Pages */}
       <Animated.ScrollView
@@ -843,46 +472,22 @@ export default function OnboardingScreen() {
         scrollEventThrottle={16}
       >
         {PAGES.map((p, i) => (
-          <OnboardingPage
-            key={p.id}
-            page={p}
-            isVisible={currentPage === i}
-            index={i}
-            scrollX={scrollX}
-          />
+          <OnboardingPage key={p.id} page={p} isVisible={currentPage === i} index={i} scrollX={scrollX} />
         ))}
       </Animated.ScrollView>
 
-      {/* Footer: dots + CTA */}
+      {/* Footer: dots + buttons */}
       <SafeAreaView style={st.footer}>
-        {/* Per-dot scaleX animation — active dot stretches into a capsule */}
+        {/* Dot indicators */}
         <View style={st.dotRow}>
           {PAGES.map((_, i) => {
-            const inputRange = [
-              (i - 1) * width,
-              i * width,
-              (i + 1) * width,
-            ];
-            const scaleX = scrollX.interpolate({
-              inputRange,
-              outputRange: [1, 3, 1],
-              extrapolate: "clamp",
-            });
-            const opacity = scrollX.interpolate({
-              inputRange,
-              outputRange: [0.3, 1, 0.3],
-              extrapolate: "clamp",
-            });
+            const inputRange = [(i - 1) * width, i * width, (i + 1) * width];
+            const scaleX = scrollX.interpolate({ inputRange, outputRange: [1, 3, 1], extrapolate: "clamp" });
+            const opacity = scrollX.interpolate({ inputRange, outputRange: [0.25, 1, 0.25], extrapolate: "clamp" });
             return (
               <Animated.View
                 key={i}
-                style={[
-                  st.dotBase,
-                  {
-                    opacity,
-                    transform: [{ scaleX }],
-                  },
-                ]}
+                style={[st.dotBase, { opacity, transform: [{ scaleX }] }]}
               />
             );
           })}
@@ -890,11 +495,8 @@ export default function OnboardingScreen() {
 
         <View style={st.btnArea}>
           {!isLast ? (
-            <TouchableOpacity
-              onPress={handleContinue}
-              activeOpacity={0.85}
-              style={st.btnShadow}
-            >
+            /* Non-last: single "Next" button */
+            <TouchableOpacity onPress={handleContinue} activeOpacity={0.85} style={st.btnShadow}>
               <LinearGradient
                 colors={["#b77cff", "#ff9fc2"]}
                 start={{ x: 0, y: 0 }}
@@ -906,9 +508,10 @@ export default function OnboardingScreen() {
               </LinearGradient>
             </TouchableOpacity>
           ) : (
+            /* Last page: Get Started + Continue as Guest */
             <View style={st.ctaGroup}>
               <TouchableOpacity
-                onPress={() => finish("/(tabs)")}
+                onPress={() => finish("/(tabs)/profile")}
                 activeOpacity={0.85}
                 style={st.btnShadow}
               >
@@ -923,11 +526,11 @@ export default function OnboardingScreen() {
                 </LinearGradient>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => finish("/(tabs)/profile")}
+                onPress={() => finish("/(tabs)")}
                 activeOpacity={0.7}
                 style={st.btnSecondary}
               >
-                <Text style={st.btnSecondaryText}>Create account later →</Text>
+                <Text style={st.btnSecondaryText}>Continue as Guest</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -937,56 +540,31 @@ export default function OnboardingScreen() {
   );
 }
 
-function SkipButton({ isLast, finish }: { isLast: boolean; finish: (target: string) => Promise<void> }) {
-  const { t } = useT();
-  return (
-    <SafeAreaView style={st.skipWrap} pointerEvents="box-none">
-      {!isLast && (
-        <TouchableOpacity
-          onPress={() => finish("/(tabs)")}
-          activeOpacity={0.7}
-          style={st.skipBtn}
-        >
-          <Text style={st.skipText}>{t("onboarding.skip")}</Text>
-        </TouchableOpacity>
-      )}
-    </SafeAreaView>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════
-// STYLES
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// STYLES — cleaner, more whitespace, Apple/Calm aesthetic
+// ═══════════════════════════════════════════════════════════════
 const st = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFF0F7" },
+  container: { flex: 1, backgroundColor: "#FEFAFF" },
 
   blob: {
     position: "absolute",
     borderRadius: 9999,
-    opacity: 0.55,
   },
   blobPink: {
-    width: 320,
-    height: 320,
+    width: 280,
+    height: 280,
     backgroundColor: "#ff9fc2",
-    top: -100,
-    left: -90,
+    top: -120,
+    left: -100,
+    opacity: 0.12,
   },
   blobLav: {
-    width: 240,
-    height: 240,
+    width: 220,
+    height: 220,
     backgroundColor: "#b77cff",
-    top: height * 0.56,
-    right: -130,
-    opacity: 0.35,
-  },
-  blobSky: {
-    width: 240,
-    height: 240,
-    backgroundColor: "#7ec8ff",
-    bottom: 80,
-    left: -100,
-    opacity: 0.3,
+    bottom: 100,
+    right: -100,
+    opacity: 0.1,
   },
 
   skipWrap: {
@@ -998,17 +576,15 @@ const st = StyleSheet.create({
   skipBtn: {
     marginTop: 12,
     marginRight: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.45)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: "rgba(26,21,48,0.04)",
   },
   skipText: {
-    fontSize: 13,
+    fontSize: 14,
     color: C.inkMuted,
-    fontWeight: "600",
+    fontWeight: "500",
   },
 
   page: {
@@ -1022,32 +598,32 @@ const st = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
+    marginBottom: 24,
   },
   textBlock: {
     alignItems: "flex-start",
   },
   eyebrowWrap: {
     alignSelf: "flex-start",
-    backgroundColor: "rgba(183,124,255,0.14)",
+    backgroundColor: "rgba(183,124,255,0.1)",
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginBottom: 16,
+    paddingVertical: 5,
+    borderRadius: 10,
+    marginBottom: 14,
   },
   eyebrow: {
     fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1.6,
+    fontWeight: "600",
+    letterSpacing: 1.4,
     color: C.accent,
   },
   headline: {
-    fontSize: 36,
+    fontSize: 34,
     fontWeight: "800",
-    letterSpacing: -1.2,
+    letterSpacing: -1,
     color: C.ink,
     lineHeight: 40,
-    marginBottom: 14,
+    marginBottom: 12,
   },
   headlineAccent: {
     color: C.accent,
@@ -1056,7 +632,7 @@ const st = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     color: C.inkSoft,
-    fontWeight: "500",
+    fontWeight: "400",
   },
 
   footer: {
@@ -1065,22 +641,20 @@ const st = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    paddingBottom: 30,
+    paddingBottom: 32,
   },
   dotRow: {
     flexDirection: "row",
-    marginBottom: 22,
+    marginBottom: 24,
     alignItems: "center",
     justifyContent: "center",
     height: DOT_SIZE + 4,
-    position: "relative",
+    gap: DOT_GAP,
   },
   dotBase: {
-    width: DOT_SIZE,
     height: DOT_SIZE,
     borderRadius: DOT_SIZE / 2,
-    backgroundColor: "#b77cff",
-    marginHorizontal: DOT_GAP / 2,
+    backgroundColor: C.accent,
   },
   btnArea: {
     width: "100%",
@@ -1090,14 +664,14 @@ const st = StyleSheet.create({
   btnShadow: {
     width: "100%",
     shadowColor: "#b77cff",
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
   },
   btnMain: {
-    height: 58,
-    borderRadius: 29,
+    height: 56,
+    borderRadius: 28,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1105,18 +679,18 @@ const st = StyleSheet.create({
   btnMainText: {
     color: "#fff",
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "600",
     letterSpacing: -0.2,
   },
   btnArrow: {
     color: "#fff",
-    fontSize: 20,
-    marginLeft: 10,
-    fontWeight: "700",
+    fontSize: 18,
+    marginLeft: 8,
+    fontWeight: "600",
   },
   ctaGroup: {
     width: "100%",
-    gap: 6,
+    gap: 4,
   },
   btnSecondary: {
     paddingVertical: 14,
@@ -1124,42 +698,41 @@ const st = StyleSheet.create({
   },
   btnSecondaryText: {
     color: C.inkSoft,
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "500",
   },
 });
 
-// ── Hero-specific styles ──
+// ── Hero styles ──
 const heroSt = StyleSheet.create({
   wrap: {
-    width: 360,
-    height: 360,
+    width: 320,
+    height: 320,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
   ringSvg: {
     position: "absolute",
-    width: 360,
-    height: 360,
+    width: 320,
+    height: 320,
     alignItems: "center",
     justifyContent: "center",
   },
   glow: {
     position: "absolute",
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: "#e6d4ff",
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: "#ece0ff",
     shadowColor: "#b77cff",
-    shadowOpacity: 0.6,
-    shadowRadius: 60,
+    shadowOpacity: 0.4,
+    shadowRadius: 50,
     shadowOffset: { width: 0, height: 0 },
-    // Android fallback — a translucent lavender disc
   },
   faceOval: {
-    width: 290,
-    height: 290,
+    width: 260,
+    height: 260,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
@@ -1172,208 +745,103 @@ const heroSt = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    height: 30,
-    backgroundColor: "rgba(183,124,255,0.5)",
+    height: 24,
+    backgroundColor: "rgba(183,124,255,0.35)",
     shadowColor: "#b77cff",
-    shadowOpacity: 0.8,
-    shadowRadius: 20,
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 0 },
   },
   dot: {
     position: "absolute",
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: "#ff5e8e",
     shadowColor: "#ff5e8e",
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
+    shadowOpacity: 0.7,
+    shadowRadius: 6,
     shadowOffset: { width: 0, height: 0 },
   },
 
-  // Proof stack
-  proofStack: {
-    width: width - 64,
-    maxWidth: 320,
-    gap: 10,
-  },
-  proofCard: {
+  // Features grid (2x2)
+  featuresGrid: {
+    width: width - 48,
+    maxWidth: 340,
     flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: "rgba(255,255,255,0.6)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.7)",
-    borderRadius: 18,
-    padding: 14,
-    paddingHorizontal: 16,
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.08,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 2,
-  },
-  proofDot: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 10,
     justifyContent: "center",
   },
-  proofDotText: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-  },
-  proofBarBg: {
-    height: 4,
-    backgroundColor: "rgba(26,21,48,0.08)",
-    borderRadius: 2,
-    marginTop: 6,
-    overflow: "hidden",
-  },
-  proofBarFg: {
-    height: 4,
-    borderRadius: 2,
-  },
-  proofName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: C.ink,
-  },
-  proofDesc: {
-    fontSize: 11,
-    color: C.inkMuted,
-    marginTop: 2,
-  },
-  proofCount: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: C.ink,
-  },
-  proofUnit: {
-    fontSize: 10,
-    color: C.inkMuted,
-  },
-
-  // Progress card
-  progressCard: {
-    width: width - 64,
-    maxWidth: 320,
-    backgroundColor: "rgba(255,255,255,0.6)",
+  featureCard: {
+    width: (width - 48 - 10) / 2,
+    maxWidth: 165,
+    backgroundColor: "rgba(255,255,255,0.7)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.7)",
-    borderRadius: 24,
-    padding: 22,
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.15,
-    shadowRadius: 40,
-    shadowOffset: { width: 0, height: 16 },
-    elevation: 4,
+    borderColor: "rgba(255,255,255,0.8)",
+    borderRadius: 18,
+    padding: 16,
+    shadowColor: "rgba(0,0,0,0.05)",
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  pcHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    marginBottom: 20,
+  featureIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
   },
-  pcLabel: {
-    fontSize: 11,
-    letterSpacing: 1.6,
-    fontWeight: "700",
-    color: C.inkMuted,
-  },
-  pcDelta: {
+  featureTitle: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#10b981",
-  },
-  winChip: {
-    backgroundColor: "rgba(16,185,129,0.12)",
-    borderWidth: 1,
-    borderColor: "rgba(16,185,129,0.3)",
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 12,
-  },
-  winChipText: {
-    fontSize: 12,
-    fontWeight: "800",
-    color: "#10b981",
-    letterSpacing: 0.3,
-  },
-  chart: {
-    height: 120,
-    marginBottom: 14,
-  },
-  pcStats: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(26,21,48,0.08)",
-  },
-  statCol: {
-    flex: 1,
-    alignItems: "center",
-  },
-  statNum: {
-    fontSize: 22,
-    fontWeight: "800",
     color: C.ink,
+    marginBottom: 4,
   },
-  statName: {
-    fontSize: 10,
+  featureDesc: {
+    fontSize: 11,
     color: C.inkMuted,
-    letterSpacing: 0.5,
-    marginTop: 2,
-    textTransform: "uppercase",
-    fontWeight: "600",
+    lineHeight: 15,
   },
 
   // CTA card
   ctaCard: {
-    width: width - 64,
-    maxWidth: 320,
-    backgroundColor: "rgba(255,255,255,0.6)",
+    width: width - 72,
+    maxWidth: 300,
+    backgroundColor: "rgba(255,255,255,0.65)",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.75)",
-    borderRadius: 28,
+    borderColor: "rgba(255,255,255,0.8)",
+    borderRadius: 24,
     padding: 28,
     alignItems: "center",
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.2,
-    shadowRadius: 50,
-    shadowOffset: { width: 0, height: 20 },
-    elevation: 6,
+    shadowColor: "rgba(0,0,0,0.05)",
+    shadowOpacity: 1,
+    shadowRadius: 30,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 4,
   },
   ctaIcon: {
-    width: 72,
-    height: 72,
-    borderRadius: 22,
+    width: 64,
+    height: 64,
+    borderRadius: 20,
     marginBottom: 16,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6,
-  },
-  ctaIconText: {
-    fontSize: 30,
   },
   ctaShimmer: {
     position: "absolute",
-    width: 28,
-    height: 120,
-    backgroundColor: "rgba(255,255,255,0.65)",
-    borderRadius: 14,
+    width: 24,
+    height: 100,
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderRadius: 12,
   },
   ctaTitle: {
-    fontSize: 18,
-    fontWeight: "800",
+    fontSize: 17,
+    fontWeight: "700",
     color: C.ink,
     marginBottom: 6,
     textAlign: "center",
@@ -1386,101 +854,19 @@ const heroSt = StyleSheet.create({
   },
   trustRow: {
     flexDirection: "row",
-    gap: 12,
-    marginTop: 16,
-    flexWrap: "wrap",
-    justifyContent: "center",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 18,
   },
   trustItem: {
-    fontSize: 10,
+    fontSize: 11,
     color: C.inkMuted,
-    fontWeight: "600",
+    fontWeight: "500",
   },
-
-  // Community page
-  communityWrap: {
-    width: width - 64,
-    maxWidth: 340,
-    alignItems: "center",
-    gap: 10,
-  },
-  communityGlow: {
-    position: "absolute",
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: "#e6d4ff",
-    top: -20,
-    opacity: 0.4,
-    alignSelf: "center",
-  },
-  avatarRing: {
-    width: 260,
-    height: 180,
-    position: "relative",
-    marginBottom: 6,
-  },
-  floatingAvatar: {
-    position: "absolute",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.85)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  centerHeart: {
-    position: "absolute",
-    left: 260 / 2 - 24,
-    top: 180 / 2 - 24,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255,255,255,0.8)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#ff9fc2",
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
-  },
-  bubble: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "rgba(255,255,255,0.6)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.7)",
-    borderRadius: 16,
-    padding: 12,
-    paddingHorizontal: 14,
-    width: "100%",
-    shadowColor: "#b77cff",
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  bubbleAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  bubbleText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: C.ink,
-    lineHeight: 18,
+  trustDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: C.inkMuted,
   },
 });

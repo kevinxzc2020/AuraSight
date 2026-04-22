@@ -64,7 +64,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
         }}
       >
         <Text style={st.emptyChartText}>
-          Scan daily to see trend
+          {t("history.scanDaily")}
         </Text>
       </View>
     );
@@ -115,7 +115,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
     <View>
       {/* 趋势说明行 */}
       <View style={st.chartHeader}>
-        <Text style={st.chartLabel}>Score Trend</Text>
+        <Text style={st.chartLabel}>{t("history.scanTrendLabel")}</Text>
         <View
           style={[
             st.trendBadge,
@@ -128,7 +128,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
               { color: improving ? Colors.emerald : Colors.rose400 },
             ]}
           >
-            {improving ? "↗ Improving" : "↘ Declining"}
+            {improving ? t("history.improving") : t("history.declining")}
           </Text>
         </View>
       </View>
@@ -199,7 +199,7 @@ function SkinScoreLineChart({ scans }: { scans: ScanRecord[] }) {
         </SvgText>
       </Svg>
 
-      <Text style={st.chartSubLabel}>Last {sorted.length} records</Text>
+      <Text style={st.chartSubLabel}>{t("history.lastRecords", { n: String(sorted.length) })}</Text>
     </View>
   );
 }
@@ -258,17 +258,17 @@ function MonthHero({
           {/* 前景弧（用简单的渐变矩形模拟，真实实现需要 SVG arc） */}
           <View style={st.heroRingCenter}>
             <Text style={st.heroRingNum}>{scannedDaysThisMonth}</Text>
-            <Text style={st.heroRingLabel}>/ {daysInMonth} days</Text>
+            <Text style={st.heroRingLabel}>{t("history.daysLabel", { days: String(daysInMonth) })}</Text>
           </View>
         </View>
         <Text style={st.heroRingDesc}>
           {monthPct >= 80
-            ? "🔥 Incredible!"
+            ? t("history.incredible")
             : monthPct >= 50
-              ? "💪 Great work!"
+              ? t("history.greatWork")
               : monthPct >= 20
-                ? "📸 Keep going!"
-                : "✨ Just started"}
+                ? t("history.keepGoing")
+                : t("history.justStarted")}
         </Text>
       </View>
 
@@ -506,7 +506,7 @@ export default function HistoryScreen() {
 
             {/* 星期标题行 */}
             <View style={st.weekRow}>
-              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, i) => (
+              {[t("history.weekdaySun"), t("history.weekdayMon"), t("history.weekdayTue"), t("history.weekdayWed"), t("history.weekdayThu"), t("history.weekdayFri"), t("history.weekdaySat")].map((d, i) => (
                 <Text key={i} style={[st.weekDay, { width: cellW }, isDark && { color: C.gray300 }]}>{d}</Text>
               ))}
             </View>
@@ -599,7 +599,7 @@ export default function HistoryScreen() {
                 />
                 <Text style={[st.legendText, isDark && { color: C.gray400 }]}>{"<70"}</Text>
               </View>
-              <Text style={[st.legendHint, isDark && { color: C.gray500 }]}>Tap day to view</Text>
+              <Text style={[st.legendHint, isDark && { color: C.gray500 }]}>{t("history.tapDayToView")}</Text>
             </View>
           </View>
 
@@ -618,9 +618,9 @@ export default function HistoryScreen() {
                 <Sparkles size={22} color={Colors.rose400} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[st.paywallChartTitle, isDark && { color: C.white }]}>Unlock trend</Text>
+                <Text style={[st.paywallChartTitle, isDark && { color: C.white }]}>{t("history.unlockTrend")}</Text>
                 <Text style={[st.paywallChartSub, isDark && { color: C.gray300 }]}>
-                  Weekly progress with VIP.
+                  {t("history.weeklyProgress")}
                 </Text>
               </View>
               <LinearGradient
@@ -635,7 +635,7 @@ export default function HistoryScreen() {
           )}
 
           {/* ── 最近扫描记录 ── */}
-          <Text style={[st.sectionTitle, isDark && { color: C.white }]}>Recent</Text>
+          <Text style={[st.sectionTitle, isDark && { color: C.white }]}>{t("history.recent")}</Text>
 
           {filteredScans.length === 0 ? (
             <EmptyState

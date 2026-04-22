@@ -24,7 +24,7 @@ import Svg, {
   Line,
   Text as SvgText,
 } from "react-native-svg";
-import { showInterstitial } from "../../lib/ads";
+import { showInterstitial, AdBanner } from "../../lib/ads";
 import {
   TrendingUp,
   TrendingDown,
@@ -201,7 +201,7 @@ function BeforeAfterHero({ data }: { data: ReportData }) {
 
       {/* 总结语：规则引擎生成的个性化文字 */}
       <View style={[st.summaryBox, isDark && { backgroundColor: "rgba(244,63,143,0.1)", borderColor: "rgba(244,63,143,0.2)" }]}>
-        <Sparkles size={14} color={isDark ? C.pink500 : Colors.rose400} />
+        <Sparkles size={14} color={isDark ? C.pink400 : Colors.rose400} />
         <Text style={[st.summaryText, isDark && { color: C.gray300 }]}>{summary}</Text>
       </View>
     </View>
@@ -484,7 +484,7 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
 
       {!loaded ? (
         <View style={{ padding: Spacing.md, alignItems: "center" }}>
-          <ActivityIndicator size="small" color={Colors.pink500} />
+          <ActivityIndicator size="small" color={Colors.pink400} />
         </View>
       ) : correlations.length === 0 ? (
         <>
@@ -515,7 +515,7 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
       )}
 
       <View style={[st.diaryFooter, isDark && { backgroundColor: "rgba(244,63,143,0.1)" }]}>
-        <Text style={[st.diaryFooterText, isDark && { color: C.pink500 }]}>
+        <Text style={[st.diaryFooterText, isDark && { color: C.pink400 }]}>
           The more you log, the smarter the analysis gets.
         </Text>
       </View>
@@ -528,20 +528,64 @@ function DiaryInsightCard({ totalScans, userId }: { totalScans: number; userId: 
 function DeepAnalysisCard({ userId }: { userId: string }) {
   const { colors: C, shadow: S, isDark } = useAppTheme();
   const [analysis, setAnalysis] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [historyIdx, setHistoryIdx] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  // 进入时自动加载历史
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/ai/deep-analysis/${userId}`);
+        const json = await res.json();
+        if (Array.isArray(json) && json.length > 0) {
+          setHistory(json);
+          setAnalysis(json[0]); // 最新一条
+          setHistoryIdx(0);
+        }
+      } catch { /* 静默 */ }
+      finally { setLoadingHistory(false); }
+    })();
+  }, [userId]);
+
+  // 生成新分析
+  async function generateNew() {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_URL}/ai/deep-analysis/${userId}`, { method: "POST" });
       const json = await res.json();
       if (json.error === "not_enough_data") { setError(json.message); }
-      else setAnalysis(json);
+      else {
+        setAnalysis(json);
+        setHistory(prev => [json, ...prev]);
+        setHistoryIdx(0);
+        setShowHistory(false);
+      }
     } catch { setError("Unable to load deep analysis. Try again later."); }
     finally { setLoading(false); }
   }
+
+  function selectHistory(idx: number) {
+    setHistoryIdx(idx);
+    setAnalysis(history[idx]);
+    setShowHistory(false);
+  }
+
+  function formatDate(dateStr: string) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  if (loadingHistory) return (
+    <View style={[st.card, S.card, { alignItems: "center", paddingVertical: 32 }, isDark && { backgroundColor: C.cardBg }]}>
+      <ActivityIndicator color="#d97706" />
+      <Text style={{ color: isDark ? C.gray400 : Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>{"Loading history…"}</Text>
+    </View>
+  );
 
   if (!analysis && !loading && !error) {
     return (
@@ -553,8 +597,8 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
         <Text style={{ fontSize: FontSize.sm, color: isDark ? C.gray400 : Colors.gray600, marginBottom: Spacing.md, lineHeight: 20 }}>
           Uncover how your lifestyle habits — sleep, diet, hydration, stress — are affecting your skin.
         </Text>
-        <TouchableOpacity onPress={load} style={{ backgroundColor: "#d97706", borderRadius: Radius.full, paddingVertical: 12, alignItems: "center" }}>
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: FontSize.sm }}>✨ Generate Deep Analysis</Text>
+        <TouchableOpacity onPress={generateNew} style={{ backgroundColor: "#d97706", borderRadius: Radius.full, paddingVertical: 12, alignItems: "center" }}>
+          <Text style={{ color: "#fff", fontWeight: "700", fontSize: FontSize.sm }}>{"✨ Generate Deep Analysis"}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -563,7 +607,7 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
   if (loading) return (
     <View style={[st.card, S.card, { alignItems: "center", paddingVertical: 32 }, isDark && { backgroundColor: C.cardBg }]}>
       <ActivityIndicator color="#d97706" />
-      <Text style={{ color: isDark ? C.gray400 : Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>Analyzing your lifestyle patterns…</Text>
+      <Text style={{ color: isDark ? C.gray400 : Colors.gray400, fontSize: FontSize.sm, marginTop: 12 }}>{"Analyzing your lifestyle patterns…"}</Text>
     </View>
   );
 
@@ -577,14 +621,54 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
 
   return (
     <View style={[st.card, S.card, isDark && { backgroundColor: C.cardBg }]}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm, marginBottom: 4 }}>
-        <Crown size={16} color="#d97706" />
-        <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: Spacing.sm }}>
+          <Crown size={16} color="#d97706" />
+          <Text style={{ fontSize: FontSize.base, fontWeight: "700", color: "#d97706" }}>Deep AI Analysis</Text>
+        </View>
+        {history.length > 1 && (
+          <TouchableOpacity
+            onPress={() => setShowHistory(!showHistory)}
+            style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fff7ed", paddingHorizontal: 10, paddingVertical: 5, borderRadius: Radius.full, borderWidth: 1, borderColor: isDark ? "rgba(217,119,6,0.3)" : "#fed7aa" }}
+          >
+            <Text style={{ fontSize: FontSize.xs, fontWeight: "600", color: "#d97706" }}>
+              {`${historyIdx + 1}/${history.length}`}
+            </Text>
+            <Text style={{ fontSize: 10, color: "#d97706" }}>{showHistory ? "▲" : "▼"}</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      {/* 历史记录列表 */}
+      {showHistory && (
+        <View style={{ backgroundColor: isDark ? "rgba(217,119,6,0.08)" : "#fffbeb", borderRadius: Radius.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(217,119,6,0.2)" : "#fef3c7", overflow: "hidden" }}>
+          <ScrollView style={{ maxHeight: 180 }}>
+            {history.map((item, idx) => (
+              <TouchableOpacity
+                key={item._id ?? idx}
+                onPress={() => selectHistory(idx)}
+                style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 11, borderBottomWidth: idx < history.length - 1 ? 1 : 0, borderBottomColor: isDark ? "rgba(217,119,6,0.15)" : "#fef3c7", backgroundColor: idx === historyIdx ? (isDark ? "rgba(217,119,6,0.18)" : "#fef9c3") : "transparent" }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text numberOfLines={1} style={{ fontSize: FontSize.sm, fontWeight: idx === historyIdx ? "700" : "500", color: isDark ? C.white : Colors.gray800 }}>
+                    {item.headline || "Analysis"}
+                  </Text>
+                  <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray500 : Colors.gray400, marginTop: 2 }}>
+                    {formatDate(item.generated_at || item.created_at)} · {item.scan_count ?? "?"} {`scan${(item.scan_count ?? 0) === 1 ? "" : "s"}`}
+                  </Text>
+                </View>
+                {idx === historyIdx && <Check size={14} color="#d97706" />}
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* 窗口副标题：诚实地反映这次分析基于多少数据 */}
       {(analysis.window_label || analysis.scan_count != null) && (
         <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, marginBottom: Spacing.sm }}>
-          Based on {analysis.scan_count ?? "?"} scan{analysis.scan_count === 1 ? "" : "s"}
+          {analysis.generated_at ? `${formatDate(analysis.generated_at)} · ` : ""}
+          {`Based on ${analysis.scan_count ?? "?"} scan${analysis.scan_count === 1 ? "" : "s"}`}
           {analysis.window_label ? ` over ${analysis.window_label}` : ""}
           {analysis.data_confidence ? ` · confidence: ${analysis.data_confidence}` : ""}
         </Text>
@@ -596,53 +680,165 @@ function DeepAnalysisCard({ userId }: { userId: string }) {
           </Text>
         </View>
       )}
-      <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.md, lineHeight: 24 }}>
+      <Text style={{ fontSize: FontSize.lg, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.xs, lineHeight: 24 }}>
         {analysis.headline}
       </Text>
 
+      {/* Trend detail narrative */}
+      {analysis.trend_detail && (
+        <Text style={{ fontSize: FontSize.sm, color: isDark ? C.gray400 : Colors.gray600, lineHeight: 20, marginBottom: Spacing.md }}>
+          {analysis.trend_detail}
+        </Text>
+      )}
+
+      {/* Score Comparison */}
+      {analysis.score_comparison && (
+        <View style={{ backgroundColor: isDark ? "rgba(168,85,247,0.12)" : "#faf5ff", borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 1, borderColor: isDark ? "rgba(168,85,247,0.25)" : "#e9d5ff" }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? "#c084fc" : "#7c3aed", marginBottom: Spacing.sm }}>📈 Score Progress</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: Spacing.sm }}>
+            <View style={{ alignItems: "center" }}>
+              <Text style={{ fontSize: 28, fontWeight: "800", color: isDark ? C.gray400 : Colors.gray400 }}>{analysis.score_comparison.first_score}</Text>
+              <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray500 : Colors.gray400 }}>Start</Text>
+            </View>
+            <Text style={{ fontSize: 18, color: isDark ? C.gray500 : Colors.gray400 }}>→</Text>
+            <View style={{ alignItems: "center" }}>
+              <Text style={{ fontSize: 28, fontWeight: "800", color: analysis.score_comparison.change >= 0 ? "#10b981" : "#f43f5e" }}>{analysis.score_comparison.latest_score}</Text>
+              <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray500 : Colors.gray400 }}>Now</Text>
+            </View>
+            <View style={{ backgroundColor: analysis.score_comparison.change >= 0 ? (isDark ? "rgba(16,185,129,0.2)" : "#ecfdf5") : (isDark ? "rgba(244,63,94,0.2)" : "#fff1f2"), paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full }}>
+              <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: analysis.score_comparison.change >= 0 ? "#10b981" : "#f43f5e" }}>
+                {analysis.score_comparison.change > 0 ? "+" : ""}{analysis.score_comparison.change}
+              </Text>
+            </View>
+          </View>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, lineHeight: 18 }}>{analysis.score_comparison.analysis}</Text>
+        </View>
+      )}
+
+      {/* Acne Type Analysis */}
+      {(analysis.acne_type_analysis ?? []).length > 0 && (
+        <View style={{ marginBottom: Spacing.md }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.sm }}>🔬 Acne Type Breakdown</Text>
+          {analysis.acne_type_analysis.map((a: any, i: number) => {
+            const typeColor = a.type === "pustule" ? "#f59e0b" : a.type === "redness" ? "#ef4444" : a.type === "broken" ? "#8b5cf6" : "#64748b";
+            const trendIcon = a.trend === "decreasing" ? "↓" : a.trend === "increasing" ? "↑" : "→";
+            const trendColor = a.trend === "decreasing" ? "#10b981" : a.trend === "increasing" ? "#f43f5e" : "#94a3b8";
+            return (
+              <View key={i} style={{ backgroundColor: isDark ? "rgba(100,100,100,0.12)" : "#f8fafc", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.xs, borderLeftWidth: 3, borderLeftColor: typeColor }}>
+                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                  <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: isDark ? C.white : Colors.gray800, textTransform: "capitalize" }}>{a.type}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500 }}>{a.count}x</Text>
+                    <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: trendColor }}>{trendIcon}</Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, lineHeight: 18 }}>{a.explanation}</Text>
+              </View>
+            );
+          })}
+        </View>
+      )}
+
       {/* Lifestyle insights */}
+      <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.sm }}>🧬 Lifestyle Impact</Text>
       {(analysis.lifestyle_insights ?? []).map((ins: any, i: number) => (
         <View key={i} style={{ borderLeftWidth: 3, borderLeftColor: impactColor(ins.impact), paddingLeft: Spacing.sm, marginBottom: Spacing.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
             <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: isDark ? C.white : Colors.gray800 }}>{ins.factor}</Text>
-            <Text style={{ fontSize: FontSize.xs, color: impactColor(ins.impact), fontWeight: "600" }}>{ins.score_effect}</Text>
+            <Text style={{ fontSize: FontSize.xs, color: impactColor(ins.impact), fontWeight: "700" }}>{ins.score_effect}</Text>
           </View>
-          <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, marginTop: 2, lineHeight: 18 }}>{ins.finding}</Text>
+          <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray400 : Colors.gray500, marginTop: 4, lineHeight: 18 }}>{ins.finding}</Text>
+          {ins.recommendation && (
+            <Text style={{ fontSize: FontSize.xs, color: isDark ? "#60a5fa" : "#2563eb", marginTop: 4, lineHeight: 18, fontWeight: "500" }}>💡 {ins.recommendation}</Text>
+          )}
         </View>
       ))}
 
       {/* Best / Worst habit */}
       {analysis.best_habit && (
-        <View style={{ backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#ecfdf5", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#6ee7b7" : "#065f46" }}>✅ Best habit</Text>
-          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#6ee7b7" : "#065f46", marginTop: 2 }}>{analysis.best_habit}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(16,185,129,0.15)" : "#ecfdf5", borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(16,185,129,0.25)" : "#a7f3d0" }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? "#6ee7b7" : "#065f46", marginBottom: 4 }}>✅ Best Habit</Text>
+          <Text style={{ fontSize: FontSize.sm, color: isDark ? "#6ee7b7" : "#065f46", lineHeight: 20 }}>{analysis.best_habit}</Text>
         </View>
       )}
       {analysis.worst_habit && (
-        <View style={{ backgroundColor: isDark ? "rgba(244,63,94,0.15)" : "#fff1f2", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#f472b6" : "#9f1239" }}>⚠️ Pattern to break</Text>
-          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#f472b6" : "#9f1239", marginTop: 2 }}>{analysis.worst_habit}</Text>
+        <View style={{ backgroundColor: isDark ? "rgba(244,63,94,0.15)" : "#fff1f2", borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(244,63,94,0.25)" : "#fecdd3" }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? "#f472b6" : "#9f1239", marginBottom: 4 }}>⚠️ Pattern to Break</Text>
+          <Text style={{ fontSize: FontSize.sm, color: isDark ? "#f472b6" : "#9f1239", lineHeight: 20 }}>{analysis.worst_habit}</Text>
         </View>
       )}
 
-      {/* Prediction */}
-      {analysis.prediction && (
-        <View style={{ backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fefce8", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
-          <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#f59e0b" : "#854d0e" }}>🔮 Prediction</Text>
-          <Text style={{ fontSize: FontSize.xs, color: isDark ? "#f59e0b" : "#854d0e", marginTop: 2 }}>{analysis.prediction}</Text>
+      {/* Weekly Pattern */}
+      {analysis.weekly_pattern && (
+        <View style={{ backgroundColor: isDark ? "rgba(99,102,241,0.12)" : "#eef2ff", borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(99,102,241,0.25)" : "#c7d2fe" }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? "#a5b4fc" : "#3730a3", marginBottom: 4 }}>📅 Weekly Pattern</Text>
+          <Text style={{ fontSize: FontSize.sm, color: isDark ? "#a5b4fc" : "#3730a3", lineHeight: 20 }}>{analysis.weekly_pattern}</Text>
         </View>
       )}
 
-      {/* Next experiment */}
-      {analysis.next_experiment && (
-        <View style={{ backgroundColor: isDark ? "rgba(59,130,246,0.15)" : "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm }}>
+      {/* Personalized Routine */}
+      {analysis.personalized_routine && (
+        <View style={{ marginBottom: Spacing.md, marginTop: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.sm }}>🧴 Personalized Routine</Text>
+          {analysis.personalized_routine.morning && (
+            <View style={{ backgroundColor: isDark ? "rgba(251,191,36,0.12)" : "#fffbeb", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.xs, borderWidth: 1, borderColor: isDark ? "rgba(251,191,36,0.2)" : "#fef3c7" }}>
+              <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#fbbf24" : "#92400e", marginBottom: 2 }}>☀️ Morning</Text>
+              <Text style={{ fontSize: FontSize.xs, color: isDark ? "#fbbf24" : "#92400e", lineHeight: 18 }}>{analysis.personalized_routine.morning}</Text>
+            </View>
+          )}
+          {analysis.personalized_routine.evening && (
+            <View style={{ backgroundColor: isDark ? "rgba(99,102,241,0.12)" : "#eef2ff", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.xs, borderWidth: 1, borderColor: isDark ? "rgba(99,102,241,0.2)" : "#c7d2fe" }}>
+              <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#a5b4fc" : "#3730a3", marginBottom: 2 }}>🌙 Evening</Text>
+              <Text style={{ fontSize: FontSize.xs, color: isDark ? "#a5b4fc" : "#3730a3", lineHeight: 18 }}>{analysis.personalized_routine.evening}</Text>
+            </View>
+          )}
+          {analysis.personalized_routine.weekly && (
+            <View style={{ backgroundColor: isDark ? "rgba(168,85,247,0.12)" : "#faf5ff", borderRadius: Radius.md, padding: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(168,85,247,0.2)" : "#e9d5ff" }}>
+              <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#c084fc" : "#7c3aed", marginBottom: 2 }}>📋 Weekly</Text>
+              <Text style={{ fontSize: FontSize.xs, color: isDark ? "#c084fc" : "#7c3aed", lineHeight: 18 }}>{analysis.personalized_routine.weekly}</Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Next experiments */}
+      {(analysis.next_experiments ?? []).length > 0 && (
+        <View style={{ marginBottom: Spacing.sm }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? C.white : Colors.gray800, marginBottom: Spacing.sm }}>🧪 Experiments to Try</Text>
+          {analysis.next_experiments.map((exp: any, i: number) => (
+            <View key={i} style={{ backgroundColor: isDark ? "rgba(59,130,246,0.12)" : "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.xs, borderWidth: 1, borderColor: isDark ? "rgba(59,130,246,0.2)" : "#bfdbfe" }}>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: isDark ? "#60a5fa" : "#1e40af", flex: 1 }}>{exp.experiment}</Text>
+                {exp.duration && <Text style={{ fontSize: FontSize.xs, color: isDark ? "#93c5fd" : "#3b82f6", fontWeight: "600" }}>{exp.duration}</Text>}
+              </View>
+              {exp.why && <Text style={{ fontSize: FontSize.xs, color: isDark ? "#93c5fd" : "#1e3a8a", lineHeight: 18, marginBottom: 2 }}>{exp.why}</Text>}
+              {exp.expected_impact && <Text style={{ fontSize: FontSize.xs, color: isDark ? "#60a5fa" : "#2563eb", lineHeight: 18, fontWeight: "500" }}>→ {exp.expected_impact}</Text>}
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Legacy: single next_experiment (backward compat) */}
+      {!analysis.next_experiments && analysis.next_experiment && (
+        <View style={{ backgroundColor: isDark ? "rgba(59,130,246,0.15)" : "#f0f9ff", borderRadius: Radius.md, padding: Spacing.sm, marginBottom: Spacing.sm }}>
           <Text style={{ fontSize: FontSize.xs, fontWeight: "700", color: isDark ? "#60a5fa" : "#0c4a6e" }}>🧪 Next experiment</Text>
           <Text style={{ fontSize: FontSize.xs, color: isDark ? "#60a5fa" : "#0c4a6e", marginTop: 2 }}>{analysis.next_experiment}</Text>
         </View>
       )}
 
-      <TouchableOpacity onPress={load} style={{ marginTop: Spacing.md, alignItems: "center" }}>
-        <Text style={{ fontSize: FontSize.xs, color: isDark ? C.gray500 : Colors.gray400 }}>↻ Refresh analysis</Text>
+      {/* Prediction */}
+      {analysis.prediction && (
+        <View style={{ backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fefce8", borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.sm, borderWidth: 1, borderColor: isDark ? "rgba(217,119,6,0.25)" : "#fef08a" }}>
+          <Text style={{ fontSize: FontSize.sm, fontWeight: "700", color: isDark ? "#f59e0b" : "#854d0e", marginBottom: 4 }}>🔮 Prediction</Text>
+          <Text style={{ fontSize: FontSize.sm, color: isDark ? "#f59e0b" : "#854d0e", lineHeight: 20 }}>{analysis.prediction}</Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        onPress={generateNew}
+        style={{ marginTop: Spacing.md, backgroundColor: isDark ? "rgba(217,119,6,0.15)" : "#fff7ed", borderRadius: Radius.full, paddingVertical: 10, alignItems: "center", borderWidth: 1, borderColor: isDark ? "rgba(217,119,6,0.3)" : "#fed7aa" }}
+      >
+        <Text style={{ fontSize: FontSize.sm, fontWeight: "600", color: "#d97706" }}>{"✨ Generate New Analysis"}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -763,11 +959,11 @@ function AIReportBody({
     <View>
       {blocks.map((b, i) => (
         <View key={i} style={st.aiBlock}>
-          {b.title && <Text style={[st.aiBlockTitle, isDark && { color: C.pink500 }]}>{b.title}</Text>}
+          {b.title && <Text style={[st.aiBlockTitle, isDark && { color: C.pink400 }]}>{b.title}</Text>}
           <Text style={[st.aiReportText, isDark && { color: C.gray300 }]}>
             {b.body.trim()}
             {streaming && i === blocks.length - 1 ? (
-              <Text style={[st.aiCaret, isDark && { color: C.pink500 }]}>▋</Text>
+              <Text style={[st.aiCaret, isDark && { color: C.pink400 }]}>▋</Text>
             ) : null}
           </Text>
         </View>
@@ -1098,11 +1294,11 @@ export default function ReportScreen() {
           {/* 三个关键数字 */}
           <View style={st.statsRow}>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.total_scans}</Text>
+              <Text style={[st.statVal, isDark && { color: C.pink400 }]}>{data.total_scans}</Text>
               <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>{t("report.totalScans")}</Text>
             </View>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
-              <Text style={[st.statVal, isDark && { color: C.pink500 }]}>{data.avg_skin_score}</Text>
+              <Text style={[st.statVal, isDark && { color: C.pink400 }]}>{data.avg_skin_score}</Text>
               <Text style={[st.statLbl, isDark && { color: C.gray400 }]}>{t("report.avgSpots")}</Text>
             </View>
             <View style={[st.statCard, S.card, isDark && { backgroundColor: C.cardBg, borderColor: C.gray200 }]}>
@@ -1194,6 +1390,9 @@ export default function ReportScreen() {
             userId={userId}
             onUpgrade={() => router.push("/vip")}
           />
+
+          {/* ── Ad Banner (free users only) ── */}
+          <AdBanner style={{ marginTop: 16, marginHorizontal: 0 }} />
         </ScrollView>
       </SafeAreaView>
 
@@ -1239,7 +1438,7 @@ export default function ReportScreen() {
               showsVerticalScrollIndicator={true}>
               {aiReportLoading && !displayedAi ? (
                 <View style={st.aiLoadingBox}>
-                  <ActivityIndicator size="large" color={isDark ? C.pink500 : "#F43F8F"} />
+                  <ActivityIndicator size="large" color={isDark ? C.pink400 : "#F43F8F"} />
                   <Text style={[st.aiLoadingText, isDark && { color: C.gray400 }]}>
                     {t("report.generating")}
                   </Text>
