@@ -46,7 +46,7 @@ import { getRecentScans, ScanRecord } from "../../lib/mongodb";
 import { AnnotatedSkinImage } from "../../components/AnnotatedSkinImage";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getUserId } from "../../lib/userId";
-import { SensitiveGate } from "../../lib/sensitiveGate";
+// SensitiveGate removed — only report tab is gated
 
 const { width } = Dimensions.get("window");
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.59:3000";
@@ -178,20 +178,17 @@ export default function ScanDetailScreen() {
 
   if (loading) {
     return (
-      <SensitiveGate>
         <LinearGradient
           colors={["#fff5f5", "#ffffff"]}
           style={styles.loadingContainer}
         >
           <ActivityIndicator size="large" color={Colors.rose400} />
         </LinearGradient>
-      </SensitiveGate>
     );
   }
 
   if (!scan) {
     return (
-      <SensitiveGate>
         <LinearGradient
           colors={["#fff5f5", "#ffffff"]}
           style={styles.loadingContainer}
@@ -201,7 +198,6 @@ export default function ScanDetailScreen() {
             <Text style={styles.backLink}>Go back</Text>
           </TouchableOpacity>
         </LinearGradient>
-      </SensitiveGate>
     );
   }
 
@@ -323,8 +319,6 @@ export default function ScanDetailScreen() {
     diaryNote.trim().length > 0 || selectedTags.length > 0;
 
   return (
-    <SensitiveGate>
-    {/* KeyboardAvoidingView 确保键盘弹出时日记输入框不被遮住 */}
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -821,7 +815,6 @@ export default function ScanDetailScreen() {
         </SafeAreaView>
       </LinearGradient>
     </KeyboardAvoidingView>
-    </SensitiveGate>
   );
 }
 

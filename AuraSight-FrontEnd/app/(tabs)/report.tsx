@@ -49,7 +49,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, router } from "expo-router";
 import { getUserId } from "../../lib/userId";
-import { SensitiveGate } from "../../lib/sensitiveGate";
+import { isPinSet, verifyPin } from "../../lib/pinLock";
 import { useAppTheme } from "../../lib/themeContext";
 
 const { width } = Dimensions.get("window");
@@ -1159,6 +1159,46 @@ export default function ReportScreen() {
   const [data, setData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [isVip, setIsVip] = useState(false);
+
+  // ── PIN 锁屏 ──
+  const [pinChecked, setPinChecked] = useState(false);
+  const [pinRequired, setPinRequired] = useState(false);
+  const [pinPassed, setPinPassed] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState("");
+
+  useFocusEffect(
+    useCallback(() => {
+      if (pinPassed) return;
+      let cancelled = false;
+      (async () => {
+        const has = await isPinSet();
+        if (cancelled) return;
+        if (!has) {
+          setPinRequired(false);
+          setPinChecked(true);
+          setPinPassed(true);
+        } else {
+          setPinRequired(true);
+          setPinChecked(true);
+        }
+      })();
+      return () => { cancelled = true; };
+    }, [pinPassed])
+  );
+
+  async function handlePinUnlock() {
+    if (pinInput.length !== 4) return;
+    const ok = await verifyPin(pinInput);
+    if (ok) {
+      setPinPassed(true);
+      setPinError("");
+    } else {
+      setPinError(t("pin.wrong"));
+      setPinInput("");
+    }
+  }
+
   const [aiReport, setAiReport] = useState<string>("");
   const [aiReportLoading, setAiReportLoading] = useState(false);
   const [aiModalVisible, setAiModalVisible] = useState(false);
@@ -1231,22 +1271,115 @@ export default function ReportScreen() {
     }
   }
 
+  // ── Face ID 锁屏 ──
+  // ── PIN 锁屏界面 ──
+  if (pinChecked && pinRequired && !pinPassed) {
+    return (
+      <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#0f0f1a" : "#FDF2F8" }}>
+        <LinearGradient
+          colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FDF2F8", "#FCE7F3", "#F3E8FF"]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: "#b77cff", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+          <Lock size={26} color="#fff" />
+        </View>
+        <Text style={{ fontSize: 18, fontWeight: "700", color: isDark ? "#fff" : "#1A1530", marginBottom: 4 }}>
+          {t("pin.unlockTitle")}
+        </Text>
+        <Text style={{ fontSize: 13, color: isDark ? "#aaa" : "#5D566F", marginBottom: 20 }}>
+          {t("pin.unlockSub")}
+        </Text>
+
+        {/* 4 圆点 */}
+        <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <View
+              key={i}
+              style={{
+                width: 16, height: 16, borderRadius: 8,
+                backgroundColor: i < pinInput.length ? Colors.rose400 : (isDark ? "#333" : "#e5e7eb"),
+              }}
+            />
+          ))}
+        </View>
+
+        {pinError ? (
+          <Text style={{ color: Colors.red, fontSize: 13, marginBottom: 8 }}>{pinError}</Text>
+        ) : null}
+
+        {/* 数字键盘 */}
+        {[[1,2,3],[4,5,6],[7,8,9],["",0,"⌫"]].map((row, ri) => (
+          <View key={ri} style={{ flexDirection: "row", justifyContent: "center", gap: 16, marginBottom: 10 }}>
+            {row.map((num, ci) => {
+              if (num === "") return <View key={ci} style={{ width: 64, height: 48 }} />;
+              return (
+                <TouchableOpacity
+                  key={ci}
+                  style={{
+                    width: 64, height: 48, borderRadius: 12,
+                    backgroundColor: isDark ? "#222" : "#f3f4f6",
+                    alignItems: "center", justifyContent: "center",
+                  }}
+                  onPress={() => {
+                    if (num === "⌫") {
+                      setPinInput((p) => p.slice(0, -1));
+                      setPinError("");
+                    } else if (pinInput.length < 4) {
+                      const next = pinInput + String(num);
+                      setPinInput(next);
+                      setPinError("");
+                      if (next.length === 4) {
+                        // 自动验证
+                        setTimeout(async () => {
+                          const ok = await verifyPin(next);
+                          if (ok) {
+                            setPinPassed(true);
+                            setPinError("");
+                          } else {
+                            setPinError(t("pin.wrong"));
+                            setPinInput("");
+                          }
+                        }, 150);
+                      }
+                    }
+                  }}
+                >
+                  <Text style={{ fontSize: 20, fontWeight: "600", color: isDark ? "#fff" : "#1A1530" }}>
+                    {num}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    );
+  }
+
+  // PIN 检查还没完成时显示 loading
+  if (!pinChecked) {
+    return (
+      <LinearGradient
+        colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
+        style={st.center}>
+        <LoadingSkeleton variant="fullscreen" />
+      </LinearGradient>
+    );
+  }
+
   if (loading) {
     return (
-      <SensitiveGate>
         <LinearGradient
           colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
           style={st.center}>
           <LoadingSkeleton variant="fullscreen" />
         </LinearGradient>
-      </SensitiveGate>
     );
   }
 
   // Empty state: No data yet
   if (!data || data.total_scans === 0) {
     return (
-      <SensitiveGate>
       <LinearGradient
         colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
         style={st.container}>
@@ -1260,14 +1393,12 @@ export default function ReportScreen() {
           />
         </SafeAreaView>
       </LinearGradient>
-      </SensitiveGate>
     );
   }
 
   const isImproved = data.score_change_pct >= 0;
 
   return (
-    <SensitiveGate>
     <LinearGradient
       colors={isDark ? ["#0f0f1a", "#1a1a2e"] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
       style={st.container}>
@@ -1451,7 +1582,6 @@ export default function ReportScreen() {
         </Pressable>
       </Modal>
     </LinearGradient>
-    </SensitiveGate>
   );
 }
 

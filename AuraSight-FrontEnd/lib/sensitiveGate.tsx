@@ -30,12 +30,15 @@ interface SensitiveCtx {
   unlock: () => Promise<boolean>;
   // null = 还没查出来；true = 需要门禁；false = 不需要（开关关 / 设备不支持）
   gateRequired: boolean | null;
+  /** settings toggle 后调用，让 Provider 重新读取 Face ID 开关状态 */
+  refreshGate: () => void;
 }
 
 const Ctx = createContext<SensitiveCtx>({
   unlocked: false,
   unlock: async () => false,
   gateRequired: false,
+  refreshGate: () => {},
 });
 
 export function useSensitive() {
@@ -45,11 +48,15 @@ export function useSensitive() {
 export function SensitiveProvider({ children }: { children: ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
   const [gateRequired, setGateRequired] = useState<boolean | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const authingRef = useRef(false);
 
-  // 把 "Face ID 开关是否开" + "设备是否支持" 这两个异步查询提到 Provider，
-  // 只查一次、缓存结果。否则每个 SensitiveGate 实例都要重跑一遍，
-  // 页面在 loading/loaded 间切换时会不断看到占位空白。
+  // refreshGate：settings toggle 后调用，触发重新读取 Face ID 状态
+  const refreshGate = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  // 读取 Face ID 开关 + 设备能力。refreshKey 变化时重新检查。
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -70,7 +77,7 @@ export function SensitiveProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshKey]);
 
   // 用 useCallback 让 unlock 引用稳定——不然每次 Provider 重渲染都产生新函数，
   // SensitiveGate 的 useEffect deps 会因此被触发，造成"一直 loading"的假象。
@@ -78,7 +85,8 @@ export function SensitiveProvider({ children }: { children: ReactNode }) {
     if (authingRef.current) return false;
     authingRef.current = true;
     try {
-      const ok = await authenticate("Access private data");
+      // biometricOnly = true → 强制 Face ID / 指纹，不弹密码键盘
+      const ok = await authenticate("Access private data", true);
       if (ok) setUnlocked(true);
       return ok;
     } finally {
@@ -87,8 +95,8 @@ export function SensitiveProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ unlocked, unlock, gateRequired }),
-    [unlocked, unlock, gateRequired],
+    () => ({ unlocked, unlock, gateRequired, refreshGate }),
+    [unlocked, unlock, gateRequired, refreshGate],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

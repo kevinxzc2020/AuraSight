@@ -376,8 +376,8 @@ const STRINGS: Record<string, Record<string, string>> = {
   "settings.dailyReminder":    { en: "Daily reminder",                 zh: "每日提醒",               es: "Recordatorio diario" },
   "settings.dailyReminder.sub":{ en: "Remind me to scan every day",    zh: "每天提醒我扫描",         es: "Recuérdame escanear cada día" },
   "settings.reminderTime":     { en: "Reminder time",                  zh: "提醒时间",               es: "Hora del recordatorio" },
-  "settings.faceId":           { en: "Face ID / Touch ID",             zh: "Face ID / 指纹",         es: "Face ID / Touch ID" },
-  "settings.faceId.sub":       { en: "Require biometrics to open",     zh: "打开 App 时需要生物识别", es: "Requerir biometría para abrir" },
+  "settings.pinLock":           { en: "Screen Lock",                    zh: "屏幕锁",                 es: "Bloqueo de pantalla" },
+  "settings.pinLock.sub":       { en: "Require PIN to view reports",   zh: "查看报告时需要输入 PIN",  es: "Requiere PIN para ver informes" },
   "settings.photoDataUse":     { en: "Allow photo data use",           zh: "允许使用照片数据",        es: "Permitir uso de datos fotográficos" },
   "settings.privacyPolicy":    { en: "Privacy Policy",                 zh: "隐私政策",               es: "Política de privacidad" },
   "settings.terms":            { en: "Terms of Service",               zh: "服务条款",               es: "Términos de servicio" },
@@ -470,10 +470,18 @@ const STRINGS: Record<string, Record<string, string>> = {
   // ═══════════════════════════════════════════════════════════
   // Face ID 弹窗
   // ═══════════════════════════════════════════════════════════
-  "faceId.prompt":       { en: "Unlock AuraSight",                                                zh: "解锁 AuraSight",                                   es: "Desbloquear AuraSight" },
-  "faceId.unavailable":  { en: "Biometric authentication is not available on this device.",        zh: "此设备不支持生物识别。",                             es: "La autenticación biométrica no está disponible en este dispositivo." },
-  "faceId.notEnrolled":  { en: "You haven't set up Face ID / Touch ID on this device yet.",        zh: "你还没在此设备上设置 Face ID / 指纹。",               es: "Aún no has configurado Face ID / Touch ID en este dispositivo." },
-  "faceId.retry":        { en: "Try again",                                                        zh: "重试",                                             es: "Reintentar" },
+  // PIN 锁屏
+  "pin.setTitle":        { en: "Set PIN",                   zh: "设置 PIN",                es: "Establecer PIN" },
+  "pin.setSub":          { en: "Choose a 4-digit PIN",      zh: "请输入 4 位数字 PIN",      es: "Elige un PIN de 4 dígitos" },
+  "pin.confirmTitle":    { en: "Confirm PIN",               zh: "确认 PIN",                es: "Confirmar PIN" },
+  "pin.confirmSub":      { en: "Enter the same PIN again",  zh: "请再输入一次相同的 PIN",   es: "Ingresa el mismo PIN otra vez" },
+  "pin.removeTitle":     { en: "Remove PIN",                zh: "移除 PIN",                es: "Eliminar PIN" },
+  "pin.removeSub":       { en: "Enter current PIN to turn off", zh: "输入当前 PIN 以关闭",  es: "Ingresa el PIN actual para desactivar" },
+  "pin.unlockTitle":     { en: "Enter PIN",                 zh: "输入 PIN",                es: "Ingresa PIN" },
+  "pin.unlockSub":       { en: "Enter your 4-digit PIN to view reports", zh: "输入 4 位 PIN 查看报告", es: "Ingresa tu PIN de 4 dígitos para ver informes" },
+  "pin.mustBe4":         { en: "PIN must be 4 digits",      zh: "PIN 必须是 4 位数字",      es: "El PIN debe tener 4 dígitos" },
+  "pin.noMatch":         { en: "PINs don't match, try again", zh: "两次输入不一致，请重试",  es: "Los PIN no coinciden, intenta de nuevo" },
+  "pin.wrong":           { en: "Wrong PIN, try again",      zh: "PIN 错误，请重试",         es: "PIN incorrecto, intenta de nuevo" },
 
   // ═══════════════════════════════════════════════════════════
   // 通知

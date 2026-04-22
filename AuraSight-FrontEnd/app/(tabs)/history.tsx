@@ -38,7 +38,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router, useFocusEffect } from "expo-router";
 import { SwipeableScanCard } from "../../components/SwipeableScanCard";
 import { getUserId } from "../../lib/userId";
-import { SensitiveGate } from "../../lib/sensitiveGate";
+// SensitiveGate removed — only report tab is gated
 import { FadeInComponent, StaggeredList } from "../../lib/animations";
 import Animated from "react-native-reanimated";
 
@@ -423,19 +423,16 @@ export default function HistoryScreen() {
 
   if (loading) {
     return (
-      <SensitiveGate>
         <LinearGradient
           colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]}
           style={st.loadingContainer}
         >
           <LoadingSkeleton variant="fullscreen" />
         </LinearGradient>
-      </SensitiveGate>
     );
   }
 
   return (
-    <SensitiveGate>
     <LinearGradient colors={isDark ? [C.background, C.background] : ["#FFF3F6", "#FFF9FB", "#FFFFFF"]} style={st.container}>
       <SafeAreaView style={st.safeArea} edges={["top"]}>
         <ScrollView
@@ -662,7 +659,6 @@ export default function HistoryScreen() {
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
-    </SensitiveGate>
   );
 }
 

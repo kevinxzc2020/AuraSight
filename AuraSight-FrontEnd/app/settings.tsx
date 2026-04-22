@@ -51,11 +51,7 @@ import {
   setReminderTime as persistReminderTime,
   formatTime,
 } from "../lib/notifications";
-import {
-  checkBiometric,
-  setFaceIdOn as persistFaceIdOn,
-  authenticate,
-} from "../lib/biometric";
+import { isPinSet, savePin, clearPin, verifyPin } from "../lib/pinLock";
 import DateTimePicker from "@react-native-community/datetimepicker";
 
 const APP_VERSION = "1.0.0";
@@ -127,7 +123,12 @@ export default function SettingsScreen() {
   const [reminderHour, setReminderHour] = useState(20);
   const [reminderMinute, setReminderMinute] = useState(0);
   const [showTimePicker, setShowTimePicker] = useState(false);
-  const [faceIdOn, setFaceIdOn] = useState(false);
+  const [pinLockOn, setPinLockOn] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinStep, setPinStep] = useState<"set" | "confirm" | "remove">("set");
+  const [pinInput, setPinInput] = useState("");
+  const [pinFirst, setPinFirst] = useState(""); // 第一次输入（设置时用来确认）
+  const [pinError, setPinError] = useState("");
   // skinGoals 已迁移到 Profile → Skin Profile
   const [dataConsentOn, setDataConsentOn] = useState(false);
   const [consentAcceptedAt, setConsentAcceptedAt] = useState<string | null>(null);
@@ -143,7 +144,7 @@ export default function SettingsScreen() {
     const mode =
       (await AsyncStorage.getItem("@aurasight_user_mode")) ?? "guest";
     const reminder = await AsyncStorage.getItem("@aurasight_reminder_on");
-    const faceId = await AsyncStorage.getItem("@aurasight_faceid_on");
+    const pinSet = await isPinSet();
     const { hour, minute } = await getReminderTime();
     setUserName(name);
     setUserEmail(email);
@@ -151,7 +152,7 @@ export default function SettingsScreen() {
     setReminderOn(reminder === "true");
     setReminderHour(hour);
     setReminderMinute(minute);
-    setFaceIdOn(faceId === "true");
+    setPinLockOn(pinSet);
     const consent = await getConsent();
     setDataConsentOn(consent.accepted);
     setConsentAcceptedAt(consent.acceptedAt);
@@ -240,25 +241,52 @@ export default function SettingsScreen() {
     }
   }
 
-  async function toggleFaceId(val: boolean) {
+  function togglePinLock(val: boolean) {
     if (val) {
-      const cap = await checkBiometric();
-      if (cap === "no_hardware") {
-        Alert.alert("🔒", t("faceId.unavailable"), [{ text: t("common.gotIt") }]);
-        return;
-      }
-      if (cap === "not_enrolled") {
-        Alert.alert("🔒", t("faceId.notEnrolled"), [{ text: t("common.gotIt") }]);
-        return;
-      }
-      // 让用户先做一次验证，证明他们真的能用 → 避免锁死自己
-      const ok = await authenticate(t("faceId.prompt"));
-      if (!ok) return;
-      await persistFaceIdOn(true);
-      setFaceIdOn(true);
+      // 打开锁屏 → 弹出设置 PIN 弹窗
+      setPinStep("set");
+      setPinInput("");
+      setPinFirst("");
+      setPinError("");
+      setShowPinModal(true);
     } else {
-      await persistFaceIdOn(false);
-      setFaceIdOn(false);
+      // 关闭锁屏 → 需要先验证当前 PIN
+      setPinStep("remove");
+      setPinInput("");
+      setPinError("");
+      setShowPinModal(true);
+    }
+  }
+
+  async function handlePinSubmit(pin: string) {
+    if (pin.length !== 4) {
+      setPinError(t("pin.mustBe4"));
+      return;
+    }
+    if (pinStep === "set") {
+      setPinFirst(pin);
+      setPinInput("");
+      setPinError("");
+      setPinStep("confirm");
+    } else if (pinStep === "confirm") {
+      if (pin !== pinFirst) {
+        setPinError(t("pin.noMatch"));
+        setPinInput("");
+        return;
+      }
+      await savePin(pin);
+      setPinLockOn(true);
+      setShowPinModal(false);
+    } else if (pinStep === "remove") {
+      const ok = await verifyPin(pin);
+      if (!ok) {
+        setPinError(t("pin.wrong"));
+        setPinInput("");
+        return;
+      }
+      await clearPin();
+      setPinLockOn(false);
+      setShowPinModal(false);
     }
   }
 
@@ -391,15 +419,15 @@ export default function SettingsScreen() {
           <Row
             iconBg={isDark ? C.gray200 : "#fff0f6"}
             iconEl={<Lock size={15} color={Colors.rose400} />}
-            label={t("settings.faceId")}
-            sub={t("settings.faceId.sub")}
+            label={t("settings.pinLock")}
+            sub={t("settings.pinLock.sub")}
             isFirst
             rightEl={
               <Switch
-                value={faceIdOn}
-                onValueChange={toggleFaceId}
+                value={pinLockOn}
+                onValueChange={togglePinLock}
                 trackColor={{ false: C.gray200, true: Colors.rose300 }}
-                thumbColor={faceIdOn ? Colors.rose400 : (isDark ? C.gray300 : "#fff")}
+                thumbColor={pinLockOn ? Colors.rose400 : (isDark ? C.gray300 : "#fff")}
               />
             }
           />
@@ -607,6 +635,88 @@ export default function SettingsScreen() {
           </Pressable>
         </Modal>
       )}
+      {/* ── PIN 设置/验证弹窗 ── */}
+      <Modal visible={showPinModal} transparent animationType="fade">
+        <Pressable
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" }}
+          onPress={() => setShowPinModal(false)}
+        >
+          <Pressable
+            style={{ width: 300, backgroundColor: isDark ? C.cardBg : "#fff", borderRadius: 20, padding: 24, alignItems: "center" }}
+            onPress={() => {}}
+          >
+            <View style={{ width: 48, height: 48, borderRadius: 24, backgroundColor: "#b77cff", alignItems: "center", justifyContent: "center", marginBottom: 12 }}>
+              <Lock size={20} color="#fff" />
+            </View>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: isDark ? "#fff" : "#1A1530", marginBottom: 4 }}>
+              {pinStep === "set" ? t("pin.setTitle") : pinStep === "confirm" ? t("pin.confirmTitle") : t("pin.removeTitle")}
+            </Text>
+            <Text style={{ fontSize: 13, color: isDark ? "#aaa" : "#5D566F", marginBottom: 16, textAlign: "center" }}>
+              {pinStep === "set" ? t("pin.setSub") : pinStep === "confirm" ? t("pin.confirmSub") : t("pin.removeSub")}
+            </Text>
+
+            {/* 4 个圆点指示器 */}
+            <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+              {[0, 1, 2, 3].map((i) => (
+                <View
+                  key={i}
+                  style={{
+                    width: 16, height: 16, borderRadius: 8,
+                    backgroundColor: i < pinInput.length ? Colors.rose400 : (isDark ? C.gray200 : "#e5e7eb"),
+                  }}
+                />
+              ))}
+            </View>
+
+            {pinError ? (
+              <Text style={{ color: Colors.red, fontSize: 13, marginBottom: 8 }}>{pinError}</Text>
+            ) : null}
+
+            {/* 数字键盘 */}
+            <View style={{ width: "100%" }}>
+              {[[1,2,3],[4,5,6],[7,8,9],["",0,"⌫"]].map((row, ri) => (
+                <View key={ri} style={{ flexDirection: "row", justifyContent: "center", gap: 16, marginBottom: 10 }}>
+                  {row.map((num, ci) => {
+                    if (num === "") return <View key={ci} style={{ width: 64, height: 48 }} />;
+                    return (
+                      <TouchableOpacity
+                        key={ci}
+                        style={{
+                          width: 64, height: 48, borderRadius: 12,
+                          backgroundColor: isDark ? C.gray200 : "#f3f4f6",
+                          alignItems: "center", justifyContent: "center",
+                        }}
+                        onPress={() => {
+                          if (num === "⌫") {
+                            setPinInput((p) => p.slice(0, -1));
+                            setPinError("");
+                          } else if (pinInput.length < 4) {
+                            const next = pinInput + String(num);
+                            setPinInput(next);
+                            setPinError("");
+                            // 输满 4 位自动提交
+                            if (next.length === 4) {
+                              setTimeout(() => handlePinSubmit(next), 150);
+                            }
+                          }
+                        }}
+                      >
+                        <Text style={{ fontSize: 20, fontWeight: "600", color: isDark ? "#fff" : "#1A1530" }}>
+                          {num}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+
+            <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 4 }}>
+              <Text style={{ color: isDark ? "#aaa" : "#5D566F", fontSize: 14 }}>{t("common.cancel")}</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
