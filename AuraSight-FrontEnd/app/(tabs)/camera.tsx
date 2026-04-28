@@ -270,12 +270,47 @@ export default function CameraScreen() {
     setConsentLocked(false);
     setAnalyzing(true);
     try {
+      // Step 1: 先 resize 到标准宽度
       const resized = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 512 } }],
-        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        { format: ImageManipulator.SaveFormat.JPEG }
       );
-      const b64 = resized.base64 ?? "";
+
+      // Step 2: 裁剪成 10:11（与显示容器一致），避免坐标映射偏移
+      const targetH = Math.round(512 * 1.1); // 563
+      const rw = resized.width;
+      const rh = resized.height;
+      let finalResult = resized;
+      if (rh > targetH) {
+        // 照片比容器高：居中裁剪上下
+        const cropY = Math.round((rh - targetH) / 2);
+        finalResult = await ImageManipulator.manipulateAsync(
+          resized.uri,
+          [{ crop: { originX: 0, originY: cropY, width: rw, height: targetH } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+      } else if (rw > Math.round(rh / 1.1)) {
+        // 照片比容器宽（横版照片）：居中裁剪左右
+        const targetW = Math.round(rh / 1.1);
+        const cropX = Math.round((rw - targetW) / 2);
+        finalResult = await ImageManipulator.manipulateAsync(
+          resized.uri,
+          [{ crop: { originX: cropX, originY: 0, width: targetW, height: rh } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+      } else {
+        // 比例已经接近 10:11，直接压缩输出
+        finalResult = await ImageManipulator.manipulateAsync(
+          resized.uri,
+          [],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+        );
+      }
+
+      const b64 = finalResult.base64 ?? "";
+      // 更新 preview 为裁剪后的图，让显示和检测用完全一样的图
+      setPreviewUri(finalResult.uri);
       setPreviewBase64(b64); // 保存供上传 Cloudinary
       const uid = await getUserId();
       const result = await analyzeImage(b64, "image/jpeg", uid ?? undefined);

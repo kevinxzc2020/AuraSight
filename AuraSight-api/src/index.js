@@ -1573,11 +1573,31 @@ async function detectWithYolo(image_base64) {
     const sharp = require("sharp");
     const ort = require("onnxruntime-node");
 
-    // 预处理：resize 到 640x640，归一化到 0-1
+    // 预处理：letterbox resize 到 640x640（等比缩放 + 灰色填充，与 YOLOv8 训练一致）
     const imgBuf = Buffer.from(image_base64, "base64");
-    const { data: pixels, info } = await sharp(imgBuf)
-      .resize(640, 640, { fit: "fill" })
+    const origMeta = await sharp(imgBuf).metadata();
+    const ow = origMeta.width, oh = origMeta.height;
+    console.log(`🔍 Original image: ${ow}x${oh}, format=${origMeta.format}, channels=${origMeta.channels}`);
+
+    // 等比缩放到 640 内
+    const scale = Math.min(640 / ow, 640 / oh);
+    const nw = Math.round(ow * scale);
+    const nh = Math.round(oh * scale);
+    const padLeft = Math.floor((640 - nw) / 2);
+    const padTop  = Math.floor((640 - nh) / 2);
+    console.log(`🔍 Letterbox: scale=${scale.toFixed(3)}, resized=${nw}x${nh}, pad=(${padLeft},${padTop})`);
+
+    // 先缩放，再 extend 到 640x640（灰色 114 填充，与 ultralytics 默认一致）
+    const { data: pixels } = await sharp(imgBuf)
+      .resize(nw, nh, { fit: "fill" })
       .removeAlpha()
+      .extend({
+        top: padTop,
+        bottom: 640 - nh - padTop,
+        left: padLeft,
+        right: 640 - nw - padLeft,
+        background: { r: 114, g: 114, b: 114 },
+      })
       .raw()
       .toBuffer({ resolveWithObject: true });
 
@@ -1589,32 +1609,48 @@ async function detectWithYolo(image_base64) {
       float32[640 * 640 * 2 + i] = pixels[i * 3 + 2] / 255.0; // B
     }
 
-    const tensor = new ort.Tensor("float32", float32, [1, 3, 640, 640]);
-    const results = await session.run({ images: tensor });
-    const output = results[Object.keys(results)[0]]; // YOLOv8 output: [1, 8400, 4+nc]
+    // ── DEBUG: 检查 ONNX 模型输入输出名、图像 tensor 统计 ──
+    const inputNames = session.inputNames;
+    const outputNames = session.outputNames;
+    console.log("🔍 ONNX inputNames:", inputNames, "outputNames:", outputNames);
 
-    const numBoxes = output.dims[1];
+    // 检查 tensor 值范围
+    let tMin = Infinity, tMax = -Infinity, tSum = 0;
+    for (let i = 0; i < float32.length; i++) {
+      if (float32[i] < tMin) tMin = float32[i];
+      if (float32[i] > tMax) tMax = float32[i];
+      tSum += float32[i];
+    }
+    console.log(`🔍 Tensor stats: min=${tMin.toFixed(4)}, max=${tMax.toFixed(4)}, mean=${(tSum / float32.length).toFixed(4)}`);
+
+    const inputName = inputNames[0] || "images";
+    const tensor = new ort.Tensor("float32", float32, [1, 3, 640, 640]);
+    const results = await session.run({ [inputName]: tensor });
+    const output = results[outputNames[0] || Object.keys(results)[0]];
+    console.log(`🔍 Output dims: [${output.dims}], dtype: ${output.type}`);
+    // YOLOv8 ONNX output shape: [1, 4+nc, 8400]
+    // 数据按列排列：第 i 个 box 的 cx = data[0*8400 + i]
+    const channels = output.dims[1];   // 4 + nc = 8
+    const numBoxes = output.dims[2];   // 8400
     const numClasses = YOLO_CLASSES.length;
     const detections = [];
 
     for (let i = 0; i < numBoxes; i++) {
-      // YOLOv8 output format: [cx, cy, w, h, class_scores...]
-      const offset = i * (4 + numClasses);
-      const cx = output.data[offset];
-      const cy = output.data[offset + 1];
-      const w  = output.data[offset + 2];
-      const h  = output.data[offset + 3];
+      const cx = output.data[0 * numBoxes + i];
+      const cy = output.data[1 * numBoxes + i];
+      const w  = output.data[2 * numBoxes + i];
+      const h  = output.data[3 * numBoxes + i];
 
       let maxConf = 0, maxIdx = 0;
       for (let c = 0; c < numClasses; c++) {
-        const conf = output.data[offset + 4 + c];
+        const conf = output.data[(4 + c) * numBoxes + i];
         if (conf > maxConf) { maxConf = conf; maxIdx = c; }
       }
 
-      if (maxConf >= 0.40) {
+      if (maxConf >= 0.08) {  // TODO: 临时降低阈值用于调试，确认检测位置是否准确
         detections.push({
           acne_type: YOLO_TO_APP[YOLO_CLASSES[maxIdx]] ?? "redness",
-          yolo_class: YOLO_CLASSES[maxIdx],  // 保留原始类名供调试
+          yolo_class: YOLO_CLASSES[maxIdx],
           confidence: Math.round(maxConf * 100) / 100,
           bbox: {
             cx: cx / 640,
@@ -1626,14 +1662,71 @@ async function detectWithYolo(image_base64) {
       }
     }
 
+    // ── DEBUG: 打印所有 box 中置信度最高的 top-5 ──
+    const allBoxes = [];
+    for (let i = 0; i < numBoxes; i++) {
+      let maxConf = 0, maxIdx = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const conf = output.data[(4 + c) * numBoxes + i];
+        if (conf > maxConf) { maxConf = conf; maxIdx = c; }
+      }
+      allBoxes.push({ i, cls: YOLO_CLASSES[maxIdx], conf: maxConf });
+    }
+    allBoxes.sort((a, b) => b.conf - a.conf);
+    console.log("🔍 YOLO top-5 confidence scores:");
+    allBoxes.slice(0, 5).forEach((b, rank) => {
+      console.log(`   #${rank + 1}: box ${b.i}, class=${b.cls}, conf=${b.conf.toFixed(4)}`);
+    });
+
     // NMS + cap
     const afterNms = nmsFilter(detections, 0.4);
-    const capped = afterNms.slice(0, 15);
+    const capped = afterNms.slice(0, 20);
     console.log(`YOLOv8 raw: ${detections.length} → NMS: ${afterNms.length} → cap: ${capped.length}`);
     return capped;
   } catch (e) {
     console.warn("⚠️  YOLO inference error:", e.message);
     return null;
+  }
+}
+
+// ── 给图片叠加半透明网格线，帮助 Claude Vision 定位坐标 ──
+async function addGridOverlay(image_base64) {
+  try {
+    const sharp = require("sharp");
+    const imgBuf = Buffer.from(image_base64, "base64");
+    const meta = await sharp(imgBuf).metadata();
+    const w = meta.width, h = meta.height;
+
+    // 生成 5×5 网格的 SVG overlay（半透明白线 + 坐标标注）
+    const gridLines = [];
+    const labels = [];
+    const cols = 5, rows = 5;
+
+    for (let i = 1; i < cols; i++) {
+      const x = Math.round(w * i / cols);
+      gridLines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>`);
+      labels.push(`<text x="${x + 3}" y="14" fill="rgba(255,255,255,0.5)" font-size="12" font-family="monospace">${(i / cols).toFixed(1)}</text>`);
+    }
+    for (let i = 1; i < rows; i++) {
+      const y = Math.round(h * i / rows);
+      gridLines.push(`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="rgba(255,255,255,0.3)" stroke-width="1"/>`);
+      labels.push(`<text x="3" y="${y + 14}" fill="rgba(255,255,255,0.5)" font-size="12" font-family="monospace">${(i / rows).toFixed(1)}</text>`);
+    }
+
+    const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      ${gridLines.join("\n")}
+      ${labels.join("\n")}
+    </svg>`;
+
+    const gridBuf = await sharp(imgBuf)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .jpeg({ quality: 85 })
+      .toBuffer();
+
+    return gridBuf.toString("base64");
+  } catch (e) {
+    console.warn("⚠️  Grid overlay failed, using original image:", e.message);
+    return image_base64;
   }
 }
 
@@ -1692,39 +1785,33 @@ function intersectDetections(run1, run2, matchThreshold = 0.25) {
   return matched;
 }
 
-// POST /ai/analyze — Self-consistent dual-pass Claude Vision 检测
-// 改进：Sonnet 降本 5x | 双次检测取交集降误报 | Skin Profile 个性化 | Few-shot prompt
+// POST /ai/analyze — Claude Vision 双次检测（主力） + YOLO 备用
+// Claude Vision 准确率高，双次交叉验证降低误报。
+// YOLO 当前模型 mAP 不足，保留代码供未来模型升级后切换。
 app.post("/ai/analyze", async (req, res) => {
   try {
     const { image_base64, media_type = "image/jpeg", user_id } = req.body;
     if (!image_base64) return res.status(400).json({ error: "image_base64 required" });
 
-    // ── 获取 Skin Profile 上下文（如有 user_id）──
+    const t0 = Date.now();
+    let detections = null;
+    let method = "claude_dual_pass";
+
+    // ── 主力：Claude Vision 双次检测 ──
+    // 前端已将图片裁剪为 10:11 标准比例，直接使用
     let skinCtx = "";
     if (user_id) {
       try {
         const analyzeUser = await findUserById(user_id);
         skinCtx = buildSkinProfileContext(analyzeUser?.health_profile);
-      } catch { /* 无用户或数据库问题，不影响检测 */ }
+      } catch {}
     }
-
     const prompt = buildFullDetectionPrompt(skinCtx);
     const anthropic = getAnthropicClient();
-
-    // ── 双次检测 (Self-Consistency) ──
-    // 并行跑两次，取交集：只有两次都检测到的点才算真阳性
-    console.log("🔍 Running dual-pass detection...");
-    const t0 = Date.now();
-
     const [result1, result2] = await Promise.all([
       runSingleDetection(anthropic, image_base64, media_type, prompt),
       runSingleDetection(anthropic, image_base64, media_type, prompt),
     ]);
-
-    const elapsed = Date.now() - t0;
-    console.log(`✅ Dual-pass done in ${elapsed}ms — Run1: ${(result1.detections ?? []).length}, Run2: ${(result2.detections ?? []).length}`);
-
-    // ── not_skin 检查：任一次判定 not_skin 就算 ──
     if (result1.not_skin || result2.not_skin) {
       return res.json({
         not_skin: true, detections: [], summary: "", severity: "clear",
@@ -1732,47 +1819,60 @@ app.post("/ai/analyze", async (req, res) => {
         positive: "", tips: [],
       });
     }
+    // DEBUG: 打印两次 Claude 原始输出
+    const d1 = result1.detections ?? [];
+    const d2 = result2.detections ?? [];
+    console.log(`🔍 Run1: ${d1.length} detections`, d1.map(d => `${d.acne_type}(${d.bbox?.cx?.toFixed(2)},${d.bbox?.cy?.toFixed(2)})`));
+    console.log(`🔍 Run2: ${d2.length} detections`, d2.map(d => `${d.acne_type}(${d.bbox?.cx?.toFixed(2)},${d.bbox?.cy?.toFixed(2)})`));
 
-    // ── 取交集 ──
-    const intersected = intersectDetections(result1, result2, 0.20);
+    // 用较宽松的距离匹配代替 IoU（Claude 坐标不稳定，IoU 太严格）
+    // 如果两次都检测到了东西但交集为空，直接用第一次的结果
+    let intersected = intersectDetections(result1, result2, 0.10); // 降低 IoU 门槛
+    console.log(`🔍 Intersected: ${intersected.length}`);
 
-    // 后处理：置信度过滤 + NMS + cap
-    const cleaned = intersected
-      .filter(d => (d.confidence ?? 0) >= 0.70)
-      .filter(d => d.bbox && d.bbox.w >= 0.02 && d.bbox.h >= 0.02)
-      .slice(0, 10);
-    const deduped = nmsFilter(cleaned, 0.35);
+    if (intersected.length === 0 && (d1.length > 0 || d2.length > 0)) {
+      // 交集为空但单次有检测：取检测数较多的那次结果
+      console.log("⚠️  Intersection empty, using single-run results as fallback");
+      const chosen = d1.length >= d2.length ? d1 : d2;
+      detections = nmsFilter(chosen.slice(0, 10), 0.35);
+    } else {
+      detections = nmsFilter(
+        intersected.filter(d => (d.confidence ?? 0) >= 0.60).slice(0, 10),
+        0.35
+      );
+    }
 
-    // 从第一次结果取 summary/tips 等文本字段（它们不需要交集）
-    const textSource = result1;
-
-    // 重算 breakdown
+    // ── Breakdown & Severity ──
     const breakdown = { pustule: 0, redness: 0, broken: 0, scab: 0 };
-    deduped.forEach(d => { if (breakdown[d.acne_type] !== undefined) breakdown[d.acne_type]++; });
+    detections.forEach(d => { if (breakdown[d.acne_type] !== undefined) breakdown[d.acne_type]++; });
 
-    // 根据交集后的实际检测数重新判定 severity
-    const totalActive = deduped.filter(d => d.acne_type !== "scab").length;
+    const totalActive = detections.filter(d => d.acne_type !== "scab").length;
     let severity = "clear";
     if (totalActive >= 16) severity = "severe";
     else if (totalActive >= 6) severity = "moderate";
     else if (totalActive >= 1) severity = "mild";
 
-    const consistentCount = deduped.filter(d => d.consistent).length;
-    console.log(`📊 Final: ${deduped.length} detections (${consistentCount} type-consistent), severity: ${severity}`);
+    // ── Summary / Tips：Claude Vision 的 result 已包含，直接用 ──
+    const summary = result1.summary ?? result2.summary ?? "";
+    const positive = result1.positive ?? result2.positive ?? "";
+    const tips = result1.tips ?? result2.tips ?? [];
+    // 用 Claude 自己判断的 severity（更准），如果有的话覆盖
+    const claudeSeverity = result1.severity ?? result2.severity;
+    if (claudeSeverity) severity = claudeSeverity;
+
+    const elapsed = Date.now() - t0;
+    console.log(`📊 Claude dual-pass → ${detections.length} detections, severity: ${severity}, ${elapsed}ms`);
 
     res.json({
-      detections: deduped,
-      summary: textSource.summary ?? "",
+      detections,
+      summary,
       severity,
       acne_breakdown: breakdown,
-      positive: textSource.positive ?? "",
-      tips: textSource.tips ?? [],
+      positive,
+      tips,
       _meta: {
-        dual_pass: true,
-        run1_count: (result1.detections ?? []).length,
-        run2_count: (result2.detections ?? []).length,
-        intersected_count: deduped.length,
-        consistent_count: consistentCount,
+        method,
+        detection_count: detections.length,
         elapsed_ms: elapsed,
       },
     });
@@ -1848,7 +1948,7 @@ Example E: A chin with one prominent white-headed pimple surrounded by a halo of
 
 ## DETECTION RULES
 1. Scan systematically: forehead → temples → nose → cheeks (L/R) → chin → jawline → neck
-2. Each lesion gets its OWN bounding box: cx, cy (center, 0.0–1.0), w, h (size, typically 0.02–0.15)
+2. Each lesion gets its OWN bounding box: cx, cy (center, 0.0–1.0), w, h (size, typically 0.02–0.15). The image has been cropped to a near-square (10:11) ratio — use the edges and visible facial landmarks to estimate precise coordinates.
 3. Minimum confidence: 0.70. If uncertain, SKIP IT.
 4. BE CONSERVATIVE — under-reporting is always better than over-reporting. Ask: "Would I point this out to a client in my chair?"
 5. CRITICAL — LABEL-COORDINATE ALIGNMENT: Before finalizing, verify each detection: the acne_type MUST describe what is physically at (cx, cy). A pustule label means the pus head is at that center point. A redness label means the inflamed papule is at that center point. If a pustule has surrounding redness, the bounding box center should be on the pus head itself, NOT on the surrounding inflammation. Do NOT swap labels between nearby lesions.

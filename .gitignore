@@ -6,6 +6,10 @@ AuraSight-api/.env
 AuraSight-FrontEnd/.env
 AuraSight-FrontEnd/.env.local
 
+# ─── ML Models (too large for GitHub, keep locally) ─────────
+AuraSight-api/models/*.onnx
+AuraSight-api/models/*.pt
+
 # ─── Node ────────────────────────────────────────────────────
 node_modules/
 AuraSight-api/node_modules/
